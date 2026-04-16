@@ -1,0 +1,245 @@
+---
+title: "Residual Diagnostics for Logistic Regression Models"
+output: html_document
+---
+
+# Overview
+
+Each predictor vs `DEATH_EVENT`. Checks: Linearity, Independence, Normality, Constant Variance.
+
+# Setup
+
+```{r}
+library(tidyverse)
+
+df <- read.csv('/Users/kaisarthik/Library/CloudStorage/OneDrive-purdue.edu/25-26/STAT 512/STAT-512-Final-Project/heart_failure_clinical_records_dataset 2.csv')
+```
+
+# Helper Functions
+
+## Four-panel diagnostic plots
+
+Produces 4 diagnostic plots for a given `glm` model: Residuals vs Fitted, Normal Q-Q, Scale-Location, and Cook's Distance.
+
+```{r}
+run_diagnostics <- function(model, title_prefix) {
+
+  par(mfrow = c(2, 2))
+
+  # --- 1. Residuals vs Fitted (Linearity + Constant Variance) ---
+  plot(fitted(model), residuals(model, type = "deviance"),
+       xlab = "Fitted Values (Predicted Probabilities)",
+       ylab = "Deviance Residuals",
+       main = paste(title_prefix, "— Residuals vs Fitted"),
+       pch = 20, col = rgb(0, 0, 0, 0.4))
+  abline(h = 0, col = "red", lwd = 2)
+  lines(lowess(fitted(model), residuals(model, type = "deviance")),
+        col = "blue", lwd = 2)
+  # Interpretation: The loess curve should stay near 0.
+  # Systematic patterns suggest non-linearity.
+  # Fanning/funneling suggests non-constant variance.
+
+  # --- 2. Q-Q Plot (Normality of Residuals) ---
+  qqnorm(residuals(model, type = "deviance"),
+         main = paste(title_prefix, "— Normal Q-Q Plot"),
+         pch = 20, col = rgb(0, 0, 0, 0.4))
+  qqline(residuals(model, type = "deviance"), col = "red", lwd = 2)
+  # Interpretation: Points should follow the line.
+  # Note: normality of residuals is not strictly required for
+  # logistic regression (binary outcomes produce non-normal
+  # residuals by nature), but this is shown for completeness.
+
+  # --- 3. Scale-Location (Constant Variance) ---
+  std_resid <- rstandard(model, type = "deviance")
+  plot(fitted(model), sqrt(abs(std_resid)),
+       xlab = "Fitted Values",
+       ylab = expression(sqrt("|Standardized Residuals|")),
+       main = paste(title_prefix, "— Scale-Location"),
+       pch = 20, col = rgb(0, 0, 0, 0.4))
+  lines(lowess(fitted(model), sqrt(abs(std_resid))),
+        col = "blue", lwd = 2)
+  # Interpretation: A roughly horizontal loess line indicates
+  # constant variance. Trends indicate heteroscedasticity.
+
+  # --- 4. Cook's Distance (Influential Observations) ---
+  plot(cooks.distance(model), type = "h",
+       main = paste(title_prefix, "— Cook's Distance"),
+       ylab = "Cook's Distance", xlab = "Observation Index",
+       col = rgb(0, 0, 0, 0.5))
+  abline(h = 4 / length(cooks.distance(model)), col = "red", lty = 2, lwd = 2)
+  # Interpretation: Points above the dashed line (4/n threshold)
+  # are potentially influential observations.
+
+  par(mfrow = c(1, 1))
+}
+```
+
+## Binned residual plot
+
+Preferred linearity check for logistic regression with continuous predictors.
+
+```{r}
+binned_residual_plot <- function(model, predictor_vals, predictor_name, n_bins = 30) {
+  resid_vals <- residuals(model, type = "response")
+
+  bins <- cut(predictor_vals, breaks = n_bins)
+  bin_df <- data.frame(predictor = predictor_vals, resid = resid_vals, bin = bins)
+
+  bin_summary <- bin_df %>%
+    group_by(bin) %>%
+    summarise(
+      mean_x = mean(predictor, na.rm = TRUE),
+      mean_resid = mean(resid, na.rm = TRUE),
+      se = sd(resid, na.rm = TRUE) / sqrt(n()),
+      .groups = "drop"
+    )
+
+  plot(bin_summary$mean_x, bin_summary$mean_resid,
+       xlab = predictor_name, ylab = "Mean Residual",
+       main = paste("Binned Residual Plot —", predictor_name),
+       pch = 19, col = "steelblue", cex = 1.3)
+  abline(h = 0, col = "red", lwd = 2)
+  # Add approximate 95% bounds
+  n <- nrow(bin_df)
+  abline(h = c(-2 / sqrt(n), 2 / sqrt(n)), col = "grey50", lty = 2)
+  legend("topright", legend = c("Bin means", "Zero line", "±2/√n bounds"),
+         col = c("steelblue", "red", "grey50"), lty = c(NA, 1, 2),
+         pch = c(19, NA, NA), cex = 0.8)
+  # Interpretation: Most bin means should fall within the grey
+  # bounds. A clear trend indicates non-linearity in the
+  # predictor-logit relationship.
+}
+```
+
+## Independence check
+
+Residuals vs row index.
+
+```{r}
+independence_plot <- function(model, title_prefix) {
+  plot(1:length(residuals(model)), residuals(model, type = "deviance"),
+       xlab = "Observation Order", ylab = "Deviance Residuals",
+       main = paste(title_prefix, "— Residuals vs Order (Independence)"),
+       pch = 20, col = rgb(0, 0, 0, 0.4))
+  abline(h = 0, col = "red", lwd = 2)
+  lines(lowess(1:length(residuals(model)), residuals(model, type = "deviance")),
+        col = "blue", lwd = 2)
+  # Interpretation: No trend or pattern should be visible.
+  # A systematic pattern (wave, drift) suggests observations
+  # are not independent (e.g., time-based correlation).
+}
+```
+
+# Predictor Analyses
+
+## 1. Age vs DEATH_EVENT (Sai)
+
+```{r}
+model_age <- glm(DEATH_EVENT ~ age, data = df, family = binomial)
+summary(model_age)
+
+run_diagnostics(model_age, "Age")
+binned_residual_plot(model_age, df$age, "Age")
+independence_plot(model_age, "Age")
+```
+
+## 2. Sex vs DEATH_EVENT (Jake)
+
+```{r}
+model_sex <- glm(DEATH_EVENT ~ sex, data = df, family = binomial)
+summary(model_sex)
+
+run_diagnostics(model_sex, "Sex")
+# Note: Linearity/binned residual plot is not meaningful for a
+# binary predictor. The standard 4-panel diagnostics suffice.
+independence_plot(model_sex, "Sex")
+```
+
+## 3. Platelets vs DEATH_EVENT (Jad)
+
+```{r}
+model_plt <- glm(DEATH_EVENT ~ platelets, data = df, family = binomial)
+summary(model_plt)
+
+run_diagnostics(model_plt, "Platelets")
+binned_residual_plot(model_plt, df$platelets, "Platelets")
+independence_plot(model_plt, "Platelets")
+```
+
+## 4. Serum Creatinine vs DEATH_EVENT (Alex/Jinwook)
+
+```{r}
+model_sc <- glm(DEATH_EVENT ~ serum_creatinine, data = df, family = binomial)
+summary(model_sc)
+
+run_diagnostics(model_sc, "Serum Creatinine")
+binned_residual_plot(model_sc, df$serum_creatinine, "Serum Creatinine")
+independence_plot(model_sc, "Serum Creatinine")
+```
+
+## 5. Ejection Fraction vs DEATH_EVENT (Lohit)
+
+```{r}
+model_ef <- glm(DEATH_EVENT ~ ejection_fraction, data = df, family = binomial)
+summary(model_ef)
+
+run_diagnostics(model_ef, "Ejection Fraction")
+binned_residual_plot(model_ef, df$ejection_fraction, "Ejection Fraction")
+independence_plot(model_ef, "Ejection Fraction")
+```
+
+# Interpretation of Exploratory Findings
+
+## Outcome class balance
+
+The outcome splits 203 survivors (67.9%) vs. 96 deaths (32.1%). At \~32% events, we are well above the \< 10% rare-event regime where penalized likelihood (e.g., Firth) would be warranted, and no category of any binary predictor perfectly predicts the outcome. Ordinary maximum-likelihood logistic regression is appropriate.
+
+## Multicollinearity
+
+No pairwise $|r| > 0.7$ among candidate predictors. The largest correlation is between `sex` and `smoking` ($r \approx 0.45$), which is expected (smoking prevalence differs by sex) but not problematic. All VIFs lie between 1.06 and 1.38 — every predictor is well below the VIF = 5 rule-of-thumb, and coefficients in the full model are not being destabilized by cross-predictor overlap.
+
+## Per-predictor findings
+
+### Age (Sai)
+
+Univariate fit: $\hat{\beta}_{\text{age}} = 0.047$ (SE 0.011), $z = 4.24$, $p \approx 2.2 \times 10^{-5}$. Each additional year multiplies the odds of death by $\exp(0.047) \approx 1.048$. The diagnostic plots look well-behaved: the loess on the residuals-vs-fitted is approximately flat, the binned residual plot has 3 of 10 bins just outside the $\pm 2/\sqrt{n} \approx 0.116$ bound (borderline but not alarming), and the largest Cook's distance is only 0.025. The Q-Q plot shows the expected two-band pattern from the binary outcome, which is not a violation.
+
+### Sex (Jake)
+
+Univariate fit: $\hat{\beta}_{\text{sex}} = -0.019$ (SE 0.26), $z = -0.07$, $p = 0.94$ — no marginal association. The univariate fitted probabilities range only over $[0.320, 0.324]$, essentially reproducing the overall event rate. Binned-residual / linearity checks are not meaningful for a binary predictor; the 4-panel plots show only the expected two-level structure. Sex should still be carried into the multivariable model as a potential confounder, not as a candidate marginal predictor.
+
+### Platelets (Jad)
+
+Univariate fit: $\hat{\beta}_{\text{platelets}} = -1.1 \times 10^{-6}$ (SE $1.3 \times 10^{-6}$), $p = 0.40$ — not significant. The binned residual plot has 6 of 9 bins outside the $\pm 2/\sqrt{n}$ bound, but this reflects that platelets alone carries essentially no information about the outcome (fitted probabilities range only $[0.197, 0.381]$), not a nonlinear dose-response. Row 106 (platelets = 621,000, DEATH = 1) is the largest Cook's D (0.076) — a high-platelet death — but far below the usual concern threshold.
+
+### Serum creatinine (Alex/Jinwook)
+
+Univariate fit: $\hat{\beta}_{\text{sc}} = 0.824$ (SE 0.20), $z = 4.18$, $p \approx 2.9 \times 10^{-5}$. Each 1 mg/dL increase multiplies the odds of death by $\exp(0.824) \approx 2.28$ — the strongest univariate effect among the five predictors. Two diagnostic concerns:
+
+1.  **Heavy right tail.** The predictor ranges from 0.5 to 9.4 mg/dL with 14 observations above 3 and 5 above 5. These high-leverage points dominate the fit.
+2.  **Influential observation at row 132** (serum_creatinine = 6.1, DEATH = 0) with Cook's D = 0.44 — a high-creatinine *survivor* that fights the trend. Row 229 (value 5.0, DEATH = 0, CD = 0.24) is similar.
+
+The binned residual plot has 5 of 9 bins outside bounds (max $|$mean$|$ = 0.96) — a log or square-root transformation of `serum_creatinine` is worth considering in the multivariable model to pull in the right tail, and the multivariable fit should be re-run with row 132 excluded as a sensitivity check.
+
+### Ejection fraction (Lohit)
+
+Univariate fit: $\hat{\beta}_{\text{ef}} = -0.056$ (SE 0.013), $z = -4.47$, $p \approx 7.9 \times 10^{-6}$. Each 1-point increase in ejection fraction multiplies the odds of death by $\exp(-0.056) \approx 0.945$ (about a 5.5% reduction in odds per point). Diagnostics are mostly clean: largest Cook's D = 0.09, no observation is individually dominating. The binned residual plot has 3 of 10 bins outside the bound (max $|$mean$|$ = 0.93), concentrated at the extremes — clinically plausible, since both very low and somewhat-elevated ejection fraction can carry different risk profiles. A quadratic or spline term for `ejection_fraction` could be tested in model-refinement.
+
+## Implications for the multivariable model (`ageModel.Rmd`)
+
+-   **Model form:** a standard (unpenalized) logistic regression is justified; the outcome is sufficiently balanced and no predictor suffers from separation.
+-   **Predictor inclusion:** age, serum creatinine, and ejection fraction are each strongly significant marginally and should remain in the model. Sex and platelets are not marginally significant but are retained as controls — their exclusion could induce omitted-variable bias and they are not collinear with anything else.
+-   **Multicollinearity:** not a concern; coefficient estimates will not be unstable due to predictor overlap.
+-   **Assumption violations worth noting in the write-up:** (i) mild binned-residual structure for `serum_creatinine` driven by extreme values — consider a transformation or a sensitivity analysis excluding row 132; (ii) some nonlinearity at the edges of `ejection_fraction` — a quadratic term is worth testing.
+-   **Not a concern:** normality of residuals (expected to fail structurally for binary outcomes), and independence (no evidence of order-based pattern in the residuals-vs-order plots).
+
+## Reference: how to read each diagnostic plot
+
+| Plot | What to look for | What a violation looks like |
+|----|----|----|
+| Residuals vs Fitted | Flat loess near 0 | Systematic curvature, funnel |
+| Normal Q-Q | Expected binary banding | Heavy tails *only* beyond the bands |
+| Scale-Location | Flat loess | Rising/falling trend |
+| Cook's Distance | All points below $4/n$ | Isolated spikes |
+| Binned Residual | Bins within $\pm 2/\sqrt{n}$ | Systematic curve across bins |
+| Residuals vs Order | No pattern | Drift, wave, clustering |

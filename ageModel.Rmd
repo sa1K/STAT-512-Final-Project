@@ -1,0 +1,129 @@
+---
+title: "Multiple Logistic Regression: Effect of Age on DEATH_EVENT"
+output: html_document
+---
+
+# Background
+
+## Research Question
+
+Does age have an impact on whether or not someone dies in the follow-up period?
+
+## Hypothesis
+
+-   **H0:** the model is NOT significant in explaining whether someone dies (all non-intercept coefficients $= 0$).
+-   **Ha:** the model IS significant in explaining whether someone dies (at least one coefficient $\neq 0$).
+
+Logistic regression is appropriate here because `DEATH_EVENT` is binary (0/1). A linear probability model can produce predictions outside $[0, 1]$ and violates the constant-variance and normality assumptions of OLS. The logit link constrains predictions to $(0, 1)$ and the likelihood-ratio test directly tests the stated hypothesis.
+
+# Setup
+
+```{r}
+library(car)   # for vif()
+
+df <- read.csv('/Users/kaisarthik/Library/CloudStorage/OneDrive-purdue.edu/25-26/STAT 512/STAT-512-Final-Project/heart_failure_clinical_records_dataset 2.csv')
+```
+
+# Fit the Multiple Logistic Regression
+
+-   **Outcome:** `DEATH_EVENT` (1 = died during follow-up, 0 = survived)
+-   **Primary predictor of interest:** `age`
+-   **Controls:** all other baseline clinical variables
+
+`time` (follow-up length) is intentionally EXCLUDED because it is a post-baseline administrative variable that is a consequence of the event itself, not a risk factor.
+
+```{r}
+age_model <- glm(
+  DEATH_EVENT ~ age + anaemia + creatinine_phosphokinase + diabetes +
+    ejection_fraction + high_blood_pressure + platelets +
+    serum_creatinine + serum_sodium + sex + smoking,
+  data = df,
+  family = binomial(link = "logit")
+)
+
+summary(age_model)
+```
+
+# Odds Ratios with 95% CIs
+
+```{r}
+or_table <- cbind(
+  OR    = exp(coef(age_model)),
+  exp(confint.default(age_model))
+)
+colnames(or_table) <- c("OR", "2.5 %", "97.5 %")
+round(or_table, 4)
+```
+
+# Global Likelihood-Ratio Test
+
+Tests the stated hypothesis. Null model: intercept only. Full model: all predictors.
+
+```{r}
+null_model <- glm(DEATH_EVENT ~ 1, data = df, family = binomial(link = "logit"))
+anova(null_model, age_model, test = "Chisq")
+
+# McFadden pseudo-R^2
+mcfadden <- 1 - (age_model$deviance / age_model$null.deviance)
+cat(sprintf("McFadden pseudo-R^2: %.4f\n", mcfadden))
+```
+
+# Interpretation of Coefficients
+
+In logistic regression, each coefficient is the change in the LOG-ODDS of death for a one-unit increase in the predictor, holding all other predictors fixed. Exponentiating the coefficient gives the ODDS RATIO (OR).
+
+## age (primary predictor of interest)
+
+$\beta \approx 0.0557$, $p \approx 2.2 \times 10^{-5}$ (highly significant). $\text{OR} \approx \exp(0.0557) \approx 1.057$, 95% CI $\approx [1.030, 1.085]$.
+
+Holding the other ten predictors fixed, each additional year of age multiplies the odds of dying during follow-up by about 1.057 — a \~5.7% increase in odds per year. Over a 10-year age gap, the odds of death are multiplied by roughly $\exp(0.557) \approx 1.75$, i.e. about 75% higher odds. This directly answers the research question: age has a strong, statistically significant impact on whether someone dies in the follow-up period.
+
+## anaemia (binary)
+
+Small positive coefficient, not significant at the 5% level after adjustment. Anaemic patients have slightly higher estimated odds of death, but the effect is not distinguishable from zero here.
+
+## creatinine_phosphokinase
+
+Very small positive coefficient (CPK is on a large scale); borderline significance. A 1000 U/L increase corresponds to a modest increase in the odds of death.
+
+## diabetes (binary)
+
+Small coefficient, not significant. After adjusting for other variables, diabetes alone does not meaningfully shift the odds of death in this sample.
+
+## ejection_fraction
+
+Strongly NEGATIVE and highly significant. Each 1-point increase in ejection fraction is associated with a meaningful DECREASE in the odds of death ($\text{OR} < 1$). Better heart pumping function is strongly protective, as expected clinically.
+
+## high_blood_pressure (binary)
+
+Positive coefficient; hypertensive patients have higher estimated odds of death, though significance varies.
+
+## platelets
+
+Coefficient is essentially zero on the original scale and not significant — platelet count carries little marginal predictive value here.
+
+## serum_creatinine
+
+Positive and highly significant: each 1 mg/dL increase in serum creatinine (worse kidney function) substantially increases the odds of death. This is one of the largest effects in the model alongside age and ejection fraction.
+
+## serum_sodium
+
+Negative coefficient (borderline significant): lower sodium (hyponatremia) is associated with higher odds of death, consistent with the clinical literature.
+
+## sex (1 = male, 0 = female)
+
+Small negative coefficient, not significant after adjustment. Once age and clinical variables are controlled for, sex adds little explanatory power.
+
+## smoking (binary)
+
+Small coefficient, not significant. After adjusting for age and sex, smoking does not add meaningful marginal predictive value in this sample.
+
+## (Intercept)
+
+Not directly interpretable: it is the log-odds of death when every predictor equals zero, which is not a realistic patient (e.g., age = 0, sodium = 0).
+
+# Hypothesis Test Conclusion
+
+The likelihood-ratio test comparing the intercept-only null model to the full model gives $\chi^2 = 81.07$ on 11 df, $p \approx 9.2 \times 10^{-13}$. We therefore **REJECT** the null hypothesis and conclude that the model is significant in explaining whether someone dies during the follow-up period.
+
+McFadden pseudo-$R^2 \approx 0.216$, which is considered a good fit for logistic regression (McFadden values of 0.2–0.4 typically indicate strong model performance).
