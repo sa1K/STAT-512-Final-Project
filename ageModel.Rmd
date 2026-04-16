@@ -19,8 +19,6 @@ Logistic regression is appropriate here because `DEATH_EVENT` is binary (0/1). A
 # Setup
 
 ```{r}
-library(car)   # for vif()
-
 df <- read.csv('/Users/kaisarthik/Library/CloudStorage/OneDrive-purdue.edu/25-26/STAT 512/STAT-512-Final-Project/heart_failure_clinical_records_dataset 2.csv')
 ```
 
@@ -127,3 +125,210 @@ Not directly interpretable: it is the log-odds of death when every predictor equ
 The likelihood-ratio test comparing the intercept-only null model to the full model gives $\chi^2 = 81.07$ on 11 df, $p \approx 9.2 \times 10^{-13}$. We therefore **REJECT** the null hypothesis and conclude that the model is significant in explaining whether someone dies during the follow-up period.
 
 McFadden pseudo-$R^2 \approx 0.216$, which is considered a good fit for logistic regression (McFadden values of 0.2–0.4 typically indicate strong model performance).
+
+# Reduced Model (Strip Non-Significant Predictors)
+
+Seven predictors in the full model are not significant at $\alpha = 0.05$: `anaemia` ($p = 0.165$), `diabetes` ($p = 0.611$), `high_blood_pressure` ($p = 0.171$), `platelets` ($p = 0.661$), `serum_sodium` ($p = 0.090$), `sex` ($p = 0.255$), and `smoking` ($p = 0.697$). We fit a reduced model using only the four predictors that were significant at the 5% level in the full fit: `age`, `creatinine_phosphokinase` ($p = 0.042$), `ejection_fraction`, and `serum_creatinine`.
+
+## Fit the reduced model
+
+```{r}
+reduced_model <- glm(
+  DEATH_EVENT ~ age + creatinine_phosphokinase + ejection_fraction + serum_creatinine,
+  data = df,
+  family = binomial(link = "logit")
+)
+
+summary(reduced_model)
+```
+
+## General Linear Test (Likelihood-Ratio Test): Reduced vs Full
+
+Tests whether the dropped predictors jointly contribute to the model fit.
+
+-   **H0:** $\beta_{\text{anaemia}} = \beta_{\text{diabetes}} = \beta_{\text{HBP}} = \beta_{\text{platelets}} = \beta_{\text{sodium}} = \beta_{\text{sex}} = \beta_{\text{smoking}} = 0$ (reduced model is adequate)
+-   **Ha:** at least one of the dropped coefficients is nonzero (the full model is preferred)
+
+```{r}
+glt <- anova(reduced_model, age_model, test = "Chisq")
+print(glt)
+
+cat("\nChi-square critical value (df = 7, alpha = 0.05):",
+    round(qchisq(0.95, 7), 4), "\n")
+cat("Chi-square test statistic:", round(glt$Deviance[2], 4), "\n")
+cat("p-value:", signif(glt$`Pr(>Chi)`[2], 4), "\n")
+```
+
+## AIC / BIC comparison
+
+```{r}
+cat("Full model     — AIC:", round(AIC(age_model), 2),
+    "  BIC:", round(BIC(age_model), 2), "\n")
+cat("Reduced model  — AIC:", round(AIC(reduced_model), 2),
+    "  BIC:", round(BIC(reduced_model), 2), "\n")
+
+# McFadden pseudo-R^2 for the reduced model
+mcfadden_red <- 1 - (reduced_model$deviance / reduced_model$null.deviance)
+cat(sprintf("Reduced model McFadden pseudo-R^2: %.4f\n", mcfadden_red))
+```
+
+## Odds ratios (reduced model)
+
+```{r}
+or_red <- cbind(
+  OR = exp(coef(reduced_model)),
+  exp(confint.default(reduced_model))
+)
+colnames(or_red) <- c("OR", "2.5 %", "97.5 %")
+round(or_red, 4)
+```
+
+# Reduced Model: Interpretation
+
+## LRT conclusion
+
+The likelihood-ratio test gives $\chi^2 = 8.92$ on 7 df, $p = 0.259$, which is well below the critical value of $\chi^2_{0.05, 7} = 14.07$. We **fail to reject** H0: the seven dropped predictors taken together do not significantly improve fit over the reduced model. The simpler four-predictor model is therefore **statistically adequate**, and should be preferred on parsimony grounds.
+
+## Information criteria
+
+-   **AIC** drops from $318.28$ (full) to $313.20$ (reduced) — a 5-point improvement, consistent with the LRT.
+-   **BIC** drops from $362.69$ (full) to $331.70$ (reduced) — a 31-point drop, which is a *large* BIC improvement and strongly favors the reduced model.
+-   **McFadden pseudo-**$R^2$ decreases only slightly, from $0.216$ to $0.192$, confirming that the dropped predictors contributed very little explanatory power.
+
+## Effect sizes in the reduced model
+
+-   **age:** $\hat{\beta} = 0.0535$, OR $= 1.055$ per year (95% CI $[1.030, 1.081]$). Each additional year increases the odds of death by about 5.5% — essentially unchanged from the full-model estimate ($\hat{\beta} = 0.0557$).
+-   **ejection_fraction:** $\hat{\beta} = -0.0704$, OR $= 0.932$ per unit (95% CI $[0.906, 0.959]$). A 5-point increase in ejection fraction multiplies the odds of death by $\exp(-0.35) \approx 0.70$ — a 30% reduction in the odds of death per 5-point EF improvement.
+-   **serum_creatinine:** $\hat{\beta} = 0.671$, OR $= 1.956$ per mg/dL (95% CI $[1.423, 2.688]$). Each additional mg/dL **nearly doubles** the odds of death.
+-   **creatinine_phosphokinase:** $\hat{\beta} = 1.94 \times 10^{-4}$, OR $= 1.0002$ per U/L (95% CI $[0.9999, 1.0005]$) — **no longer significant** in the reduced model ($p = 0.147$). Its apparent significance in the full model ($p = 0.042$) appears fragile once correlated noise predictors are removed.
+
+## Sensitivity note: dropping CPK
+
+Because CPK is no longer significant once the noise predictors are removed, an even more parsimonious three-predictor model (`age`, `ejection_fraction`, `serum_creatinine`) is a reasonable further simplification. It also passes the LRT against the full model ($\chi^2 = 11.00$ on 8 df, $p = 0.20$) and has virtually identical AIC ($313.28$) and better BIC. However, since CPK was significant at $\alpha = 0.05$ in the *full* model, we keep it here to faithfully answer the question "strip out all predictors that were non-significant in the full model, then test."
+
+## Answer to the research question
+
+With or without the non-significant predictors, **age remains a strong and statistically significant predictor of death during follow-up**. The OR for `age` in the reduced model is $1.055$ per year, and in the full model was $1.057$ per year — essentially identical. The reduced model gives a more parsimonious story without materially changing the answer: age has a clear, clinically meaningful, and statistically robust effect on the odds of death during the follow-up period, and this conclusion is not driven by confounding from (or collinearity with) the non-significant predictors that we dropped.
+
+# Minimal Model (Drop CPK)
+
+Following the sensitivity note above, we now formally drop CPK and refit. The minimal model contains only the three predictors that remain significant in the reduced fit: `age`, `ejection_fraction`, and `serum_creatinine`.
+
+## Fit the minimal model
+
+```{r}
+minimal_model <- glm(
+  DEATH_EVENT ~ age + ejection_fraction + serum_creatinine,
+  data = df,
+  family = binomial(link = "logit")
+)
+
+summary(minimal_model)
+```
+
+## GLT: Minimal vs Reduced (single test of CPK)
+
+-   **H0:** $\beta_{\text{CPK}} = 0$ (CPK can be dropped from the reduced model)
+-   **Ha:** $\beta_{\text{CPK}} \neq 0$ (CPK carries unique explanatory power)
+
+```{r}
+glt_cpk <- anova(minimal_model, reduced_model, test = "Chisq")
+print(glt_cpk)
+
+cat("\nChi-square critical (df = 1, alpha = 0.05):",
+    round(qchisq(0.95, 1), 4), "\n")
+cat("Chi-square test statistic:", round(glt_cpk$Deviance[2], 4), "\n")
+cat("p-value:", signif(glt_cpk$`Pr(>Chi)`[2], 4), "\n")
+```
+
+## GLT: Minimal vs Full (all 8 dropped predictors)
+
+-   **H0:** all 8 dropped coefficients equal zero (the 3-predictor model is adequate)
+-   **Ha:** at least one of the 8 coefficients is nonzero
+
+```{r}
+glt_full <- anova(minimal_model, age_model, test = "Chisq")
+print(glt_full)
+
+cat("\nChi-square critical (df = 8, alpha = 0.05):",
+    round(qchisq(0.95, 8), 4), "\n")
+cat("Chi-square test statistic:", round(glt_full$Deviance[2], 4), "\n")
+cat("p-value:", signif(glt_full$`Pr(>Chi)`[2], 4), "\n")
+```
+
+## AIC / BIC comparison of all three models
+
+```{r}
+comparison <- data.frame(
+  AIC      = c(AIC(age_model), AIC(reduced_model), AIC(minimal_model)),
+  BIC      = c(BIC(age_model), BIC(reduced_model), BIC(minimal_model)),
+  Deviance = c(age_model$deviance, reduced_model$deviance, minimal_model$deviance),
+  df_resid = c(age_model$df.residual, reduced_model$df.residual, minimal_model$df.residual),
+  row.names = c("Full (11 predictors)", "Reduced (4 predictors)", "Minimal (3 predictors)")
+)
+print(round(comparison, 2))
+
+# McFadden pseudo-R^2 for all three
+null_dev <- age_model$null.deviance
+cat("\nMcFadden pseudo-R^2:\n")
+cat(sprintf("  Full:     %.4f\n", 1 - age_model$deviance     / null_dev))
+cat(sprintf("  Reduced:  %.4f\n", 1 - reduced_model$deviance / null_dev))
+cat(sprintf("  Minimal:  %.4f\n", 1 - minimal_model$deviance / null_dev))
+```
+
+## Odds ratios (minimal model)
+
+```{r}
+or_min <- cbind(
+  OR = exp(coef(minimal_model)),
+  exp(confint.default(minimal_model))
+)
+colnames(or_min) <- c("OR", "2.5 %", "97.5 %")
+round(or_min, 4)
+```
+
+# Minimal Model: Interpretation
+
+## LRT conclusions
+
+**Minimal vs Reduced** (direct test of CPK alone): $\chi^2 = 2.08$ on 1 df, $p = 0.149$, below the critical value of $\chi^2_{0.05, 1} = 3.84$. We **fail to reject** H0: the data are consistent with $\beta_{\text{CPK}} = 0$. CPK's effect is not distinguishable from zero once we condition on `age`, `ejection_fraction`, and `serum_creatinine`.
+
+**Minimal vs Full** (testing all 8 dropped predictors jointly): $\chi^2 = 11.00$ on 8 df, $p = 0.202$, below the critical value of $\chi^2_{0.05, 8} = 15.51$. We **fail to reject** H0: the full set of 8 non-essential predictors does not significantly improve fit over the 3-predictor minimal model. The minimal model is **statistically adequate** relative to the full model.
+
+## Information criteria
+
+| Model                  | AIC    | BIC        | McFadden $R^2$ |
+|------------------------|--------|------------|----------------|
+| Full (11 predictors)   | 318.28 | 362.69     | 0.2160         |
+| Reduced (4 predictors) | 313.20 | 331.70     | 0.1922         |
+| Minimal (3 predictors) | 313.28 | **328.08** | 0.1867         |
+
+-   **AIC** is essentially tied between the reduced and minimal models (313.20 vs 313.28) — AIC mildly prefers reduced because CPK is kept at the margin of significance.
+-   **BIC** is minimized by the minimal model (328.08). BIC penalizes extra parameters more heavily than AIC, and it decisively selects the 3-predictor model.
+-   **McFadden** pseudo-$R^2$ drops only marginally (0.192 → 0.187) — explanatory power is essentially preserved.
+
+When AIC and BIC disagree, we lean on the formal hypothesis test and the parsimony principle: the LRT clears the minimal model ($p = 0.149$ for dropping CPK; $p = 0.202$ for dropping all 8 predictors jointly), so we adopt it.
+
+## Effect sizes in the minimal model
+
+-   **age:** $\hat{\beta} = 0.0517$, OR $= 1.053$ per year (95% CI $[1.028, 1.079]$), $p \approx 2.7 \times 10^{-5}$. Essentially identical to the full ($1.057$) and reduced ($1.055$) estimates.
+-   **ejection_fraction:** $\hat{\beta} = -0.0700$, OR $= 0.932$ per unit (95% CI $[0.907, 0.959]$), $p \approx 8.7 \times 10^{-7}$. A 10-point improvement in EF multiplies the odds of death by $\exp(-0.70) \approx 0.50$ — roughly halves the odds of death.
+-   **serum_creatinine:** $\hat{\beta} = 0.666$, OR $= 1.946$ per mg/dL (95% CI $[1.425, 2.659]$), $p \approx 2.9 \times 10^{-5}$. Each additional mg/dL nearly doubles the odds of death.
+
+All three predictors are highly significant ($p < 10^{-4}$).
+
+## Stability of the age effect across specifications
+
+| Model | $\hat{\beta}_{\text{age}}$ | OR per year | $p$-value |
+|----|----|----|----|
+| Full (11 predictors) | 0.0557 | 1.0573 | $2.2 \times 10^{-5}$ |
+| Reduced (4 predictors) | 0.0535 | 1.0550 | $1.9 \times 10^{-5}$ |
+| Minimal (3 predictors) | 0.0517 | 1.0531 | $2.7 \times 10^{-5}$ |
+
+The estimated age effect is remarkably stable across specifications: the OR moves only from $1.057$ to $1.053$ as we strip away 8 predictors, and the p-value is essentially unchanged. This is strong evidence that age is an **independent, robust risk factor** for death during follow-up — its effect is not driven by confounding with, or collinearity against, any of the other measured clinical variables.
+
+## Final answer to the research question
+
+A parsimonious three-predictor model — `age`, `ejection_fraction`, and `serum_creatinine` — is statistically equivalent to the full 11-predictor model (LRT $p = 0.202$), achieves the **lowest BIC** among all three candidate models, and estimates an age effect nearly identical to that of the full model. We therefore conclude:
+
+> **Age has a robust, statistically significant effect on the odds of death during the follow-up period.** The odds of death increase by approximately **5.3% per additional year of age** ($p \approx 2.7 \times 10^{-5}$), controlling for ejection fraction and serum creatinine. Equivalently, each 10-year increase in age raises the odds of death by approximately **68%** ($\exp(0.517) \approx 1.68$). This conclusion holds across every model specification we examined and is not an artifact of model choice.
