@@ -1,0 +1,119 @@
+---
+title: STAT512 - Impact of Sex on Death Event Likelihood
+author: "Jake Johnson"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+```{r message=FALSE}
+
+# Attempted consistency between all segments from case study / teammates code
+
+df <- read.csv("heart_failure_clinical_records_dataset.csv")
+
+#library(tidyverse)    # data wrangling & ggplot2
+#library(car)          # vif(), Anova(), influencePlot()
+#library(lmtest)       # lrtest(), bptest()
+#library(ResourceSelection) # hoslem.test()
+#library(pROC)         # roc(), auc()
+#library(DescTools)    # PseudoR2()
+#library(caret)        # confusionMatrix()
+#library(epitools)     # oddsratio.wald() for Fisher's exact
+
+```
+
+```{r}
+# prints for testing
+head(df)
+```
+
+```{r}
+run_diagnostics <- function(model, title_prefix) {
+
+  par(mfrow = c(2, 2))
+
+  # --- 1. Residuals vs Fitted (Linearity + Constant Variance) ---
+  plot(fitted(model), residuals(model, type = "deviance"),
+       xlab = "Fitted Values (Predicted Probabilities)",
+       ylab = "Deviance Residuals",
+       main = paste(title_prefix, "— Residuals vs Fitted"),
+       pch = 20, col = rgb(0, 0, 0, 0.4))
+  abline(h = 0, col = "red", lwd = 2)
+  lines(lowess(fitted(model), residuals(model, type = "deviance")),
+        col = "blue", lwd = 2)
+  # Interpretation: The loess curve should stay near 0.
+  # Systematic patterns suggest non-linearity.
+  # Fanning/funneling suggests non-constant variance.
+
+  # --- 2. Q-Q Plot (Normality of Residuals) ---
+  qqnorm(residuals(model, type = "deviance"),
+         main = paste(title_prefix, "— Normal Q-Q Plot"),
+         pch = 20, col = rgb(0, 0, 0, 0.4))
+  qqline(residuals(model, type = "deviance"), col = "red", lwd = 2)
+  # Interpretation: Points should follow the line.
+  # Note: normality of residuals is not strictly required for
+  # logistic regression (binary outcomes produce non-normal
+  # residuals by nature), but this is shown for completeness.
+
+  # --- 3. Scale-Location (Constant Variance) ---
+  std_resid <- rstandard(model, type = "deviance")
+  plot(fitted(model), sqrt(abs(std_resid)),
+       xlab = "Fitted Values",
+       ylab = expression(sqrt("|Standardized Residuals|")),
+       main = paste(title_prefix, "— Scale-Location"),
+       pch = 20, col = rgb(0, 0, 0, 0.4))
+  lines(lowess(fitted(model), sqrt(abs(std_resid))),
+        col = "blue", lwd = 2)
+  # Interpretation: A roughly horizontal loess line indicates
+  # constant variance. Trends indicate heteroscedasticity.
+
+  # --- 4. Cook's Distance (Influential Observations) ---
+  plot(cooks.distance(model), type = "h",
+       main = paste(title_prefix, "— Cook's Distance"),
+       ylab = "Cook's Distance", xlab = "Observation Index",
+       col = rgb(0, 0, 0, 0.5))
+  abline(h = 4 / length(cooks.distance(model)), col = "red", lty = 2, lwd = 2)
+  # Interpretation: Points above the dashed line (4/n threshold)
+  # are potentially influential observations.
+
+  par(mfrow = c(1, 1))
+}
+```
+
+## Independence check
+
+Residuals vs row index.
+
+```{r}
+independence_plot <- function(model, title_prefix) {
+  plot(1:length(residuals(model)), residuals(model, type = "deviance"),
+       xlab = "Observation Order", ylab = "Deviance Residuals",
+       main = paste(title_prefix, "— Residuals vs Order (Independence)"),
+       pch = 20, col = rgb(0, 0, 0, 0.4))
+  abline(h = 0, col = "red", lwd = 2)
+  lines(lowess(1:length(residuals(model)), residuals(model, type = "deviance")),
+        col = "blue", lwd = 2)
+  # Interpretation: No trend or pattern should be visible.
+  # A systematic pattern (wave, drift) suggests observations
+  # are not independent (e.g., time-based correlation).
+}
+```
+
+```{r}
+
+#REGRESSION MODEL - SEX vs. DEATH EVENT
+
+model_sex <- glm(DEATH_EVENT ~ sex, data = df, family = binomial)
+summary(model_sex)
+
+run_diagnostics(model_sex, "Sex")
+independence_plot(model_sex, "Sex")
+
+# Sex was not a statistically significant predictor of death (p = 0.940504). 
+# There is no evidence of a difference in mortality between males and females in this dataset
+
+# We fail to reject the null for this research question - therefore sex should not be included within our multivariable model
+
+```
