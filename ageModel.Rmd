@@ -42,17 +42,6 @@ age_model <- glm(
 summary(age_model)
 ```
 
-# Odds Ratios with 95% CIs
-
-```{r}
-or_table <- cbind(
-  OR    = exp(coef(age_model)),
-  exp(confint.default(age_model))
-)
-colnames(or_table) <- c("OR", "2.5 %", "97.5 %")
-round(or_table, 4)
-```
-
 # Global Likelihood-Ratio Test
 
 Tests the stated hypothesis. Null model: intercept only. Full model: all predictors.
@@ -66,59 +55,13 @@ mcfadden <- 1 - (age_model$deviance / age_model$null.deviance)
 cat(sprintf("McFadden pseudo-R^2: %.4f\n", mcfadden))
 ```
 
-# Interpretation of Coefficients
+# Interpretation
 
-In logistic regression, each coefficient is the change in the LOG-ODDS of death for a one-unit increase in the predictor, holding all other predictors fixed. Exponentiating the coefficient gives the ODDS RATIO (OR).
-
-## age (primary predictor of interest)
+## age
 
 $\beta \approx 0.0557$, $p \approx 2.2 \times 10^{-5}$ (highly significant). $\text{OR} \approx \exp(0.0557) \approx 1.057$, 95% CI $\approx [1.030, 1.085]$.
 
 Holding the other ten predictors fixed, each additional year of age multiplies the odds of dying during follow-up by about 1.057 — a \~5.7% increase in odds per year. Over a 10-year age gap, the odds of death are multiplied by roughly $\exp(0.557) \approx 1.75$, i.e. about 75% higher odds. This directly answers the research question: age has a strong, statistically significant impact on whether someone dies in the follow-up period.
-
-## anaemia (binary)
-
-Small positive coefficient, not significant at the 5% level after adjustment. Anaemic patients have slightly higher estimated odds of death, but the effect is not distinguishable from zero here.
-
-## creatinine_phosphokinase
-
-Very small positive coefficient (CPK is on a large scale); borderline significance. A 1000 U/L increase corresponds to a modest increase in the odds of death.
-
-## diabetes (binary)
-
-Small coefficient, not significant. After adjusting for other variables, diabetes alone does not meaningfully shift the odds of death in this sample.
-
-## ejection_fraction
-
-Strongly NEGATIVE and highly significant. Each 1-point increase in ejection fraction is associated with a meaningful DECREASE in the odds of death ($\text{OR} < 1$). Better heart pumping function is strongly protective, as expected clinically.
-
-## high_blood_pressure (binary)
-
-Positive coefficient; hypertensive patients have higher estimated odds of death, though significance varies.
-
-## platelets
-
-Coefficient is essentially zero on the original scale and not significant — platelet count carries little marginal predictive value here.
-
-## serum_creatinine
-
-Positive and highly significant: each 1 mg/dL increase in serum creatinine (worse kidney function) substantially increases the odds of death. This is one of the largest effects in the model alongside age and ejection fraction.
-
-## serum_sodium
-
-Negative coefficient (borderline significant): lower sodium (hyponatremia) is associated with higher odds of death, consistent with the clinical literature.
-
-## sex (1 = male, 0 = female)
-
-Small negative coefficient, not significant after adjustment. Once age and clinical variables are controlled for, sex adds little explanatory power.
-
-## smoking (binary)
-
-Small coefficient, not significant. After adjusting for age and sex, smoking does not add meaningful marginal predictive value in this sample.
-
-## (Intercept)
-
-Not directly interpretable: it is the log-odds of death when every predictor equals zero, which is not a realistic patient (e.g., age = 0, sodium = 0).
 
 # Hypothesis Test Conclusion
 
@@ -170,17 +113,6 @@ cat("Reduced model  — AIC:", round(AIC(reduced_model), 2),
 # McFadden pseudo-R^2 for the reduced model
 mcfadden_red <- 1 - (reduced_model$deviance / reduced_model$null.deviance)
 cat(sprintf("Reduced model McFadden pseudo-R^2: %.4f\n", mcfadden_red))
-```
-
-## Odds ratios (reduced model)
-
-```{r}
-or_red <- cbind(
-  OR = exp(coef(reduced_model)),
-  exp(confint.default(reduced_model))
-)
-colnames(or_red) <- c("OR", "2.5 %", "97.5 %")
-round(or_red, 4)
 ```
 
 # Reduced Model: Interpretation
@@ -276,17 +208,6 @@ cat(sprintf("  Reduced:  %.4f\n", 1 - reduced_model$deviance / null_dev))
 cat(sprintf("  Minimal:  %.4f\n", 1 - minimal_model$deviance / null_dev))
 ```
 
-## Odds ratios (minimal model)
-
-```{r}
-or_min <- cbind(
-  OR = exp(coef(minimal_model)),
-  exp(confint.default(minimal_model))
-)
-colnames(or_min) <- c("OR", "2.5 %", "97.5 %")
-round(or_min, 4)
-```
-
 # Minimal Model: Interpretation
 
 ## LRT conclusions
@@ -319,11 +240,11 @@ All three predictors are highly significant ($p < 10^{-4}$).
 
 ## Stability of the age effect across specifications
 
-| Model | $\hat{\beta}_{\text{age}}$ | OR per year | $p$-value |
-|----|----|----|----|
-| Full (11 predictors) | 0.0557 | 1.0573 | $2.2 \times 10^{-5}$ |
-| Reduced (4 predictors) | 0.0535 | 1.0550 | $1.9 \times 10^{-5}$ |
-| Minimal (3 predictors) | 0.0517 | 1.0531 | $2.7 \times 10^{-5}$ |
+| Model                  | $\hat{\beta}_{\text{age}}$ | $p$-value            |
+|------------------------|----------------------------|----------------------|
+| Full (11 predictors)   | 0.0557                     | $2.2 \times 10^{-5}$ |
+| Reduced (4 predictors) | 0.0535                     | $1.9 \times 10^{-5}$ |
+| Minimal (3 predictors) | 0.0517                     | $2.7 \times 10^{-5}$ |
 
 The estimated age effect is remarkably stable across specifications: the OR moves only from $1.057$ to $1.053$ as we strip away 8 predictors, and the p-value is essentially unchanged. This is strong evidence that age is an **independent, robust risk factor** for death during follow-up — its effect is not driven by confounding with, or collinearity against, any of the other measured clinical variables.
 
