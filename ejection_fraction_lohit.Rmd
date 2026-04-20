@@ -1,0 +1,184 @@
+---
+title: "Multiple Logistic Regression: Effect of Ejection Fraction on DEATH_EVENT"
+author: "Lohit Jagarlamudi"
+output:
+  html_document: default
+---
+
+# Background
+
+## Research Question
+
+Does ejection fraction affect whether a heart failure patient dies during the follow-up period?
+
+## Hypothesis
+
+- **H0:** the model is not significant in explaining whether someone dies (all non-intercept coefficients = 0).
+- **Ha:** the model is significant (at least one coefficient is nonzero).
+
+Logistic regression is appropriate here because `DEATH_EVENT` is binary (0/1). A linear probability model can produce predictions outside [0,1] and violates the constant-variance and normality assumptions of OLS. The logit link constrains predictions to (0,1), and the likelihood-ratio test directly tests the stated hypothesis.
+
+# Setup
+
+```{r message=FALSE}
+library(car)
+library(tidyverse)
+
+df <- read.csv("heart_failure_clinical_records_dataset 2.csv")
+```
+
+```{r}
+head(df)
+```
+
+# Fit the Full Model
+
+`time` is excluded since it reflects follow-up length and is determined by the event, not a risk factor.
+
+```{r}
+ef_model <- glm(
+  DEATH_EVENT ~ ejection_fraction + age + anaemia + creatinine_phosphokinase +
+    diabetes + high_blood_pressure + platelets + serum_creatinine +
+    serum_sodium + sex + smoking,
+  data = df,
+  family = binomial(link = "logit")
+)
+
+summary(ef_model)
+```
+
+# Multicollinearity Check
+
+```{r}
+vif(ef_model)
+```
+
+All VIFs are between 1.05 and 1.38, well below 5, so multicollinearity is not a concern.
+
+# Coefficient Interpretation
+
+`ejection_fraction` is negative and highly significant (p = 2.23e-06): higher EF means better heart function and lower odds of death. `age` and `serum_creatinine` are also significant and positive. `creatinine_phosphokinase` is borderline (p = 0.042). The other seven predictors are not significant at the 0.05 level.
+
+# Global Test
+
+Tests whether the model as a whole is significant. Null model is intercept-only.
+
+```{r}
+null_model <- glm(DEATH_EVENT ~ 1, data = df, family = binomial(link = "logit"))
+anova(null_model, ef_model, test = "Chisq")
+```
+
+Chi-squared = 81.07 on 11 df (p = 9.17e-13), so we reject H0 and conclude the model is significant.
+
+# Reduced Model
+
+Dropping the seven non-significant predictors and keeping only those significant at 0.05: `ejection_fraction`, `age`, `creatinine_phosphokinase`, and `serum_creatinine`.
+
+```{r}
+reduced_model <- glm(
+  DEATH_EVENT ~ ejection_fraction + age + creatinine_phosphokinase + serum_creatinine,
+  data = df,
+  family = binomial(link = "logit")
+)
+
+summary(reduced_model)
+```
+
+## GLT: Reduced vs Full
+
+- **H0:** all dropped coefficients = 0
+- **Ha:** at least one is nonzero
+
+```{r}
+glt <- anova(reduced_model, ef_model, test = "Chisq")
+print(glt)
+
+cat("Critical value (df = 7, alpha = 0.05):", round(qchisq(0.95, 7), 4), "\n")
+cat("Test statistic:", round(glt$Deviance[2], 4), "\n")
+cat("p-value:", signif(glt$`Pr(>Chi)`[2], 4), "\n")
+```
+
+Test statistic = 8.92, critical value = 14.07, p = 0.259. We fail to reject H0 — the reduced model is adequate.
+
+## AIC / BIC
+
+```{r}
+cat("Full model    - AIC:", round(AIC(ef_model), 2), "  BIC:", round(BIC(ef_model), 2), "\n")
+cat("Reduced model - AIC:", round(AIC(reduced_model), 2), "  BIC:", round(BIC(reduced_model), 2), "\n")
+```
+
+Both AIC and BIC favor the reduced model, consistent with the GLT result.
+
+# Diagnostics
+
+```{r}
+# residuals vs fitted
+plot(fitted(reduced_model), residuals(reduced_model, type = "deviance"),
+     xlab = "Fitted Values", ylab = "Deviance Residuals",
+     main = "Residuals vs Fitted",
+     pch = 20, col = rgb(0, 0, 0, 0.4))
+abline(h = 0, col = "red", lwd = 2)
+lines(lowess(fitted(reduced_model), residuals(reduced_model, type = "deviance")),
+      col = "blue", lwd = 2)
+```
+
+```{r}
+# Cook's distance
+plot(cooks.distance(reduced_model), type = "h",
+     main = "Cook's Distance", ylab = "Cook's D", xlab = "Observation Index",
+     col = rgb(0, 0, 0, 0.5))
+abline(h = 4 / nrow(df), col = "red", lty = 2, lwd = 2)
+```
+
+```{r}
+# independence check
+plot(1:nrow(df), residuals(reduced_model, type = "deviance"),
+     xlab = "Observation Order", ylab = "Deviance Residuals",
+     main = "Residuals vs Order",
+     pch = 20, col = rgb(0, 0, 0, 0.4))
+abline(h = 0, col = "red", lwd = 2)
+lines(lowess(1:nrow(df), residuals(reduced_model, type = "deviance")),
+      col = "blue", lwd = 2)
+```
+
+The loess curve in residuals vs fitted shows some curvature, suggesting possible nonlinearity in ejection fraction. No single observation dominates Cook's distance. No pattern in residuals vs order, so independence holds.
+
+# Remedy: Quadratic Term for Ejection Fraction
+
+The residual plot suggests the EF-logit relationship may not be linear. We add a quadratic term and test whether it improves fit.
+
+```{r}
+quad_model <- glm(
+  DEATH_EVENT ~ ejection_fraction + I(ejection_fraction^2) + age +
+    creatinine_phosphokinase + serum_creatinine,
+  data = df,
+  family = binomial(link = "logit")
+)
+
+summary(quad_model)
+```
+
+## GLT: Linear vs Quadratic EF
+
+- **H0:** quadratic coefficient = 0
+- **Ha:** quadratic coefficient is nonzero
+
+```{r}
+glt_quad <- anova(reduced_model, quad_model, test = "Chisq")
+print(glt_quad)
+
+cat("Critical value (df = 1, alpha = 0.05):", round(qchisq(0.95, 1), 4), "\n")
+cat("Test statistic:", round(glt_quad$Deviance[2], 4), "\n")
+cat("p-value:", signif(glt_quad$`Pr(>Chi)`[2], 4), "\n")
+```
+
+## AIC / BIC Comparison
+
+```{r}
+cat("Reduced (linear EF)  - AIC:", round(AIC(reduced_model), 2), "  BIC:", round(BIC(reduced_model), 2), "\n")
+cat("Quadratic EF         - AIC:", round(AIC(quad_model), 2), "  BIC:", round(BIC(quad_model), 2), "\n")
+```
+
+# Conclusion
+
+The quadratic term is significant (chi-squared = 16.01, p = 6.32e-05) and AIC drops from 313.20 to 299.19, so the quadratic model fits better. The EF-mortality relationship is not linear: odds of death drop steeply at low EF and level off at higher values. Ejection fraction is a significant predictor of death across all model specifications.
