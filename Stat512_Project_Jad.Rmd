@@ -1,0 +1,276 @@
+---
+title: "Multiple Logistic Regression: Effect of Platelets on DEATH_EVENT"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+# Background
+
+## Research Question
+
+Are high platelet levels associated with increased mortality rates?
+
+## Hypothesis
+
+- **H0:** the model is NOT significant in explaining whether someone dies (all non-intercept coefficients = 0).
+- **Ha:** the model IS significant in explaining whether someone dies (at least one coefficient != 0).
+
+Logistic regression is appropriate here because `DEATH_EVENT` is binary (0/1). A linear probability model can produce predictions outside [0,1] and violates the constant-variance and normality assumptions of OLS. The logit link constrains predictions to (0,1), and the likelihood-ratio test directly tests the stated hypothesis.
+
+# Setup
+
+```{r}
+library(tidyverse)
+library(car)
+library(pscl)
+library(boot)
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+df <- read.csv("heart_failure_clinical_records_dataset 2.csv")
+
+df <- df %>%
+  mutate(
+    DEATH_EVENT = as.integer(DEATH_EVENT),
+    anaemia = factor(anaemia),
+    diabetes = factor(diabetes),
+    high_blood_pressure = factor(high_blood_pressure),
+    sex = factor(sex, levels = c(0, 1), labels = c("Female", "Male")),
+    smoking = factor(smoking),
+    platelets_100k = platelets / 100000,
+    log_serum_creatinine = log(serum_creatinine),
+    ejection_fraction_sq = ejection_fraction^2
+  )
+
+n_obs <- nrow(df)
+p_event <- mean(df$DEATH_EVENT)
+event_counts <- table(df$DEATH_EVENT)
+
+cat("DATASET INTRODUCTION\n")
+cat("Number of observations:", n_obs, "\n")
+cat("Outcome counts (0 = survived, 1 = died):\n")
+print(event_counts)
+cat("\nOutcome event rate:", round(p_event, 4), "\n\n")
+
+var_table <- tibble(
+  variable = c(
+    "DEATH_EVENT", "platelets", "platelets_100k", "age", "anaemia",
+    "creatinine_phosphokinase", "diabetes", "ejection_fraction",
+    "serum_creatinine", "log_serum_creatinine", "serum_sodium",
+    "high_blood_pressure", "sex", "smoking"
+  ),
+  type = c(
+    "binary outcome", "numeric", "numeric", "numeric", "binary factor",
+    "numeric", "binary factor", "numeric",
+    "numeric", "numeric", "numeric",
+    "binary factor", "binary factor", "binary factor"
+  ),
+  units = c(
+    "0/1", "platelets per microliter", "100,000 platelets per microliter", "years", "0/1",
+    "mcg/L", "0/1", "percent",
+    "mg/dL", "log(mg/dL)", "mEq/L",
+    "0/1", "Female/Male", "0/1"
+  )
+)
+cat("VARIABLE SUMMARY\n")
+print(var_table)
+cat("\n")
+
+cat("RESEARCH QUESTION\n")
+cat("Does platelet level significantly predict the odds of death after adjusting for age, anaemia, creatinine phosphokinase, diabetes, ejection fraction, serum creatinine, serum sodium, high blood pressure, sex, and smoking?\n\n")
+
+cat("PRIMARY HYPOTHESES\n")
+cat("H0: beta_platelets_100k = 0\n")
+cat("Ha: beta_platelets_100k != 0\n\n")
+
+cat("GLOBAL MODEL HYPOTHESES\n")
+cat("H0: beta_1 = beta_2 = ... = beta_p = 0 for all non-intercept terms in the baseline model\n")
+cat("Ha: At least one non-intercept beta differs from 0\n\n")
+
+baseline_model <- glm(
+  DEATH_EVENT ~ platelets_100k + age + anaemia + creatinine_phosphokinase +
+    diabetes + ejection_fraction + high_blood_pressure +
+    serum_creatinine + serum_sodium + sex + smoking,
+  data = df,
+  family = binomial(link = "logit")
+)
+
+cat("BASELINE MODEL SUMMARY\n")
+print(summary(baseline_model))
+cat("\n")
+
+coef_table <- summary(baseline_model)$coefficients
+or_ci_base <- exp(confint.default(baseline_model))
+or_table <- data.frame(
+  term = rownames(coef_table),
+  estimate = coef_table[, "Estimate"],
+  std_error = coef_table[, "Std. Error"],
+  z_value = coef_table[, "z value"],
+  p_value = coef_table[, "Pr(>|z|)"],
+  odds_ratio = exp(coef_table[, "Estimate"]),
+  OR_lower_95 = or_ci_base[, 1],
+  OR_upper_95 = or_ci_base[, 2],
+  row.names = NULL
+)
+cat("BASELINE COEFFICIENT / OR TABLE\n")
+print(or_table %>% mutate(across(where(is.numeric), ~ round(.x, 4))))
+cat("\n")
+
+null_model <- glm(DEATH_EVENT ~ 1, data = df, family = binomial(link = "logit"))
+global_lrt <- anova(null_model, baseline_model, test = "Chisq")
+cat("GLOBAL LIKELIHOOD-RATIO TEST\n")
+print(global_lrt)
+cat("\n")
+
+mcfadden_base <- unname(pR2(baseline_model)["McFadden"])
+cat("BASELINE McFADDEN PSEUDO-R2:", round(mcfadden_base, 4), "\n")
+cat("BASELINE AIC:", round(AIC(baseline_model), 2), "\n")
+cat("BASELINE BIC:", round(BIC(baseline_model), 2), "\n\n")
+
+reduced_platelet_model <- glm(
+  DEATH_EVENT ~ age + anaemia + creatinine_phosphokinase +
+    diabetes + ejection_fraction + high_blood_pressure +
+    serum_creatinine + serum_sodium + sex + smoking,
+  data = df,
+  family = binomial(link = "logit")
+)
+
+platelet_lrt <- anova(reduced_platelet_model, baseline_model, test = "Chisq")
+cat("CONDITIONAL CONTRIBUTION OF PLATELETS (REDUCED VS FULL)\n")
+print(platelet_lrt)
+cat("\n")
+
+platelet_row <- or_table %>% filter(term == "platelets_100k")
+cat("PRIMARY PREDICTOR INTERPRETATION\n")
+cat("Estimated log-odds coefficient for platelets_100k:", round(platelet_row$estimate, 4), "\n")
+cat("Standard error:", round(platelet_row$std_error, 4), "\n")
+cat("p-value:", signif(platelet_row$p_value, 4), "\n")
+cat("Odds ratio:", round(platelet_row$odds_ratio, 4), "\n")
+cat("95% OR CI: [", round(platelet_row$OR_lower_95, 4), ", ", round(platelet_row$OR_upper_95, 4), "]\n\n", sep = "")
+
+cat("CONDITIONAL INTERPRETATION OF KEY CONTINUOUS TERMS\n")
+key_terms <- or_table %>%
+  filter(term %in% c("platelets_100k", "age", "ejection_fraction", "serum_creatinine", "serum_sodium"))
+print(key_terms %>% mutate(across(where(is.numeric), ~ round(.x, 4))))
+cat("\n")
+cat("Interpretation guide:\n")
+cat("- platelets_100k: change in odds for a 100,000-unit increase in platelets, holding all other predictors fixed.\n")
+cat("- age: change in odds for a 1-year increase in age, holding all other predictors fixed.\n")
+cat("- ejection_fraction: change in odds for a 1-point increase in ejection fraction, holding all other predictors fixed.\n")
+cat("- serum_creatinine: change in odds for a 1 mg/dL increase in serum creatinine, holding all other predictors fixed.\n")
+cat("- serum_sodium: change in odds for a 1 mEq/L increase in serum sodium, holding all other predictors fixed.\n\n")
+
+numeric_predictors <- df %>%
+  select(platelets_100k, age, creatinine_phosphokinase, ejection_fraction,
+         serum_creatinine, serum_sodium)
+
+cat("PAIRWISE CORRELATION MATRIX AMONG NUMERIC PREDICTORS\n")
+print(round(cor(numeric_predictors, use = "complete.obs"), 3))
+cat("\n")
+
+cat("VIF VALUES FOR BASELINE MODEL\n")
+print(round(vif(baseline_model), 3))
+cat("\n")
+
+interaction_model <- glm(
+  DEATH_EVENT ~ platelets_100k * sex + age + anaemia + creatinine_phosphokinase +
+    diabetes + ejection_fraction + high_blood_pressure +
+    serum_creatinine + serum_sodium + smoking,
+  data = df,
+  family = binomial(link = "logit")
+)
+
+interaction_lrt <- anova(baseline_model, interaction_model, test = "Chisq")
+cat("INTERACTION TEST: platelets_100k * sex\n")
+print(summary(interaction_model))
+cat("\n")
+print(interaction_lrt)
+cat("\n")
+
+remedial_model <- glm(
+  DEATH_EVENT ~ platelets_100k + age + anaemia + creatinine_phosphokinase +
+    diabetes + ejection_fraction + ejection_fraction_sq +
+    high_blood_pressure + log_serum_creatinine + serum_sodium + sex + smoking,
+  data = df,
+  family = binomial(link = "logit")
+)
+
+cat("REMEDIAL / REFINED MODEL SUMMARY\n")
+print(summary(remedial_model))
+cat("\n")
+
+coef_table_rem <- summary(remedial_model)$coefficients
+or_ci_rem <- exp(confint.default(remedial_model))
+remedial_or_table <- data.frame(
+  term = rownames(coef_table_rem),
+  estimate = coef_table_rem[, "Estimate"],
+  std_error = coef_table_rem[, "Std. Error"],
+  z_value = coef_table_rem[, "z value"],
+  p_value = coef_table_rem[, "Pr(>|z|)"],
+  odds_ratio = exp(coef_table_rem[, "Estimate"]),
+  OR_lower_95 = or_ci_rem[, 1],
+  OR_upper_95 = or_ci_rem[, 2],
+  row.names = NULL
+)
+cat("REMEDIAL MODEL COEFFICIENT / OR TABLE\n")
+print(remedial_or_table %>% mutate(across(where(is.numeric), ~ round(.x, 4))))
+cat("\n")
+
+baseline_vs_remedial <- anova(baseline_model, remedial_model, test = "Chisq")
+cat("BASELINE VS REMEDIAL MODEL COMPARISON\n")
+print(baseline_vs_remedial)
+cat("\n")
+
+mcfadden_remedial <- unname(pR2(remedial_model)["McFadden"])
+comparison_table <- tibble(
+  model = c("Baseline", "Remedial"),
+  AIC = c(AIC(baseline_model), AIC(remedial_model)),
+  BIC = c(BIC(baseline_model), BIC(remedial_model)),
+  McFadden = c(mcfadden_base, mcfadden_remedial)
+)
+cat("MODEL COMPARISON TABLE\n")
+print(comparison_table %>% mutate(across(where(is.numeric), ~ round(.x, 4))))
+cat("\n")
+
+boot_stat <- function(data, indices) {
+  d <- data[indices, ]
+  fit <- glm(
+    DEATH_EVENT ~ platelets_100k + age + anaemia + creatinine_phosphokinase +
+      diabetes + ejection_fraction + ejection_fraction_sq +
+      high_blood_pressure + log_serum_creatinine + serum_sodium + sex + smoking,
+    data = d,
+    family = binomial(link = "logit")
+  )
+  c(
+    beta_platelets = coef(fit)["platelets_100k"],
+    OR_platelets = exp(coef(fit)["platelets_100k"])
+  )
+}
+
+set.seed(512)
+boot_out <- boot(df, statistic = boot_stat, R = 1000)
+
+boot_beta_ci <- quantile(boot_out$t[, 1], probs = c(0.025, 0.975), na.rm = TRUE)
+boot_or_ci <- quantile(boot_out$t[, 2], probs = c(0.025, 0.975), na.rm = TRUE)
+
+cat("BOOTSTRAP RESULTS FOR platelets_100k IN REMEDIAL MODEL\n")
+cat("Bootstrap mean beta:", round(mean(boot_out$t[, 1], na.rm = TRUE), 4), "\n")
+cat("Bootstrap 95% percentile CI for beta: [", round(boot_beta_ci[1], 4), ", ", round(boot_beta_ci[2], 4), "]\n", sep = "")
+cat("Bootstrap mean OR:", round(mean(boot_out$t[, 2], na.rm = TRUE), 4), "\n")
+cat("Bootstrap 95% percentile CI for OR: [", round(boot_or_ci[1], 4), ", ", round(boot_or_ci[2], 4), "]\n\n", sep = "")
+
+cat("FINAL WRITE-UP NOTES\n")
+cat("1. The project uses logistic regression because DEATH_EVENT is binary.\n")
+cat("2. The main conditional question is whether platelets predict death after adjusting for the other covariates.\n")
+cat("3. The reduced-vs-full likelihood-ratio test is the logistic-regression analogue of the extra sum of squares / partial F-test.\n")
+cat("4. Coefficients must be interpreted conditionally in log-odds or odds-ratio terms, holding all other variables fixed.\n")
+cat("5. Multicollinearity is assessed with correlations and VIFs.\n")
+cat("6. The interaction model checks whether the platelet effect differs by sex.\n")
+cat("7. The remedial model addresses the exploratory concerns by using log(serum_creatinine) and a quadratic ejection_fraction term.\n")
+cat("8. Bootstrap intervals provide an additional uncertainty check for the platelet effect under the remedial model.\n\n")
+
+cat("SUGGESTED CONCLUSION TEMPLATE\n")
+cat("After adjusting for age, anaemia, creatinine phosphokinase, diabetes, ejection fraction, serum creatinine, serum sodium, high blood pressure, sex, and smoking, the coefficient for platelets_100k represents the conditional change in the log-odds of death associated with a 100,000-unit increase in platelet count. The reduced-vs-full likelihood-ratio test determines whether platelet count contributes significantly beyond the other predictors already in the model. The remedial model then checks whether the main conclusions are robust after addressing the exploratory signs of nonlinearity in ejection fraction and skewness in serum creatinine.\n")
+```
