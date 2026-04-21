@@ -5,16 +5,25 @@ output: html_document
 
 # Background
 
-## Research Question
+## Research Questions
 
-Does age have an impact on whether or not someone dies in the follow-up period?
+1.  Does age have an impact on whether or not someone dies in the follow-up period?
+    1.  **H0:** the model is NOT significant in explaining whether someone dies (age coefficient $= 0$).
+    2.  **Ha:** the model IS significant in explaining whether someone dies (age coefficient $\neq 0$).
+2.  Does the sex of the patient have an impact on whether or not someone dies in the follow-up period?
+    1.  **H0:** the model is NOT significant in explaining whether someone dies (sex coefficient $= 0$).
+    2.  **Ha:** the model IS significant in explaining whether someone dies (sex coefficient $\neq 0$).
+3.  Are high platelet levels associated with increased mortality rates?
+    1.  **H0:** the model is NOT significant in explaining whether someone dies (platelet coefficient $= 0$).
+    2.  **Ha:** the model IS significant in explaining whether someone dies (platelet coefficient $\neq 0$).
+4.  Does the level of serum creatinine of an adult have an effect on whether or not the adult dies due to heart failure in the follow up period?
+    1.  **H0:** the model is NOT significant in explaining whether someone dies (creatine coefficient $= 0$).
+    2.  **Ha:** the model IS significant in explaining whether someone dies (creatine coefficient $\neq 0$).
+5.  Does the percentage of blood leaving the heart at each contraction have an effect on if the patient died of heart failure during the follow-up period?
+    1.  **H0:** the model is NOT significant in explaining whether someone dies (ejection farction coefficient $= 0$).
+    2.  **Ha:** the model IS significant in explaining whether someone dies (ejection farction coefficient $\neq 0$).
 
-## Hypothesis
-
--   **H0:** the model is NOT significant in explaining whether someone dies (all non-intercept coefficients $= 0$).
--   **Ha:** the model IS significant in explaining whether someone dies (at least one coefficient $\neq 0$).
-
-Logistic regression is appropriate here because `DEATH_EVENT` is binary (0/1). A linear probability model can produce predictions outside $[0, 1]$ and violates the constant-variance and normality assumptions of OLS. The logit link constrains predictions to $(0, 1)$ and the likelihood-ratio test directly tests the stated hypothesis.
+## Model type selection
 
 # Setup
 

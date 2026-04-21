@@ -1,0 +1,377 @@
+---
+title: "Ejection Fraction Multiple Linear Regression"
+output: html_document
+date: "2026-04-21"
+---
+
+## Goal
+
+Use multiple linear regression to determine which of the five selected predictors are significantly associated with `ejection_fraction`, following the project pipeline through step 5:
+
+1.  Assumption screening
+2.  Initial model
+3.  Diagnostics
+4.  Decision and final model
+5.  Model quality and validation
+
+## Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+options(scipen = 999)
+
+library(car)
+library(caret)
+library(lmtest)
+
+data_path <- "/Users/kaisarthik/Library/CloudStorage/OneDrive-purdue.edu/25-26/STAT 512/STAT-512-Final-Project/heart_failure_clinical_records_dataset 2.csv"
+
+df <- read.csv(data_path)
+df$high_blood_pressure <- factor(
+  df$high_blood_pressure,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+```
+
+## Step 1: Assumption Screening
+
+The exploratory stage is used to check whether the MLR assumptions are plausible before making inference from the full model.
+
+### Fit the full model
+
+```{r}
+full_model <- lm(
+  ejection_fraction ~ high_blood_pressure + serum_sodium +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df
+)
+
+full_vif <- round(vif(full_model), 3)
+full_bp <- bptest(full_model)
+full_shapiro <- shapiro.test(residuals(full_model))
+full_dw <- dwtest(full_model)
+full_std_resid <- rstandard(full_model)
+full_hat <- hatvalues(full_model)
+full_cooks <- cooks.distance(full_model)
+
+n <- nrow(df)
+p <- length(coef(full_model))
+outlier_rows <- as.integer(which(abs(full_std_resid) > 3))
+high_leverage_rows <- as.integer(which(full_hat > (2 * p / n)))
+influential_rows <- as.integer(which(full_cooks > (4 / n)))
+```
+
+### Assumption checks
+
+```{r}
+cat("Linearity:\n")
+cat("Inspect the predictor-response plots and residual plots for curvature.\n\n")
+
+cat("Independence:\n")
+cat("Each row is one patient, so independence is plausible by design.\n")
+cat(
+  sprintf(
+    "Durbin-Watson = %.4f, p-value = %.4f\n\n",
+    unname(full_dw$statistic),
+    full_dw$p.value
+  )
+)
+
+cat("Multicollinearity:\n")
+print(full_vif)
+cat("\n")
+
+cat("Constant variance:\n")
+cat(
+  sprintf(
+    "Breusch-Pagan = %.4f on %d df, p-value = %.4f\n\n",
+    unname(full_bp$statistic),
+    unname(full_bp$parameter),
+    full_bp$p.value
+  )
+)
+
+cat("Normality:\n")
+cat(
+  sprintf(
+    "Shapiro-Wilk W = %.4f, p-value = %.4f\n\n",
+    full_shapiro$statistic,
+    full_shapiro$p.value
+  )
+)
+
+cat("Unusual observations:\n")
+cat("Rows with |standardized residual| > 3:\n")
+if (length(outlier_rows) == 0) {
+  cat("None\n")
+} else {
+  print(outlier_rows)
+}
+
+cat(sprintf("\nHigh leverage threshold: h_i > %.4f\n", 2 * p / n))
+if (length(high_leverage_rows) == 0) {
+  cat("None\n")
+} else {
+  print(high_leverage_rows)
+}
+
+cat("\nCook's distance threshold: 4/n\n")
+if (length(influential_rows) == 0) {
+  cat("None\n")
+} else {
+  print(influential_rows)
+}
+```
+
+### Screening plots
+
+```{r}
+par(mfrow = c(2, 2), mar = c(4, 4, 3, 1))
+
+boxplot(
+  ejection_fraction ~ high_blood_pressure,
+  data = df,
+  main = "EF by High Blood Pressure",
+  xlab = "High Blood Pressure",
+  ylab = "Ejection Fraction",
+  col = c("grey85", "lightblue")
+)
+
+plot(
+  df$serum_sodium, df$ejection_fraction,
+  pch = 19, col = rgb(0, 0, 0, 0.45),
+  xlab = "Serum Sodium", ylab = "Ejection Fraction",
+  main = "EF vs Serum Sodium"
+)
+abline(lm(ejection_fraction ~ serum_sodium, data = df), col = "red", lwd = 2)
+
+plot(
+  df$serum_creatinine, df$ejection_fraction,
+  pch = 19, col = rgb(0, 0, 0, 0.45),
+  xlab = "Serum Creatinine", ylab = "Ejection Fraction",
+  main = "EF vs Serum Creatinine"
+)
+abline(lm(ejection_fraction ~ serum_creatinine, data = df), col = "red", lwd = 2)
+
+plot(
+  df$age, df$ejection_fraction,
+  pch = 19, col = rgb(0, 0, 0, 0.45),
+  xlab = "Age", ylab = "Ejection Fraction",
+  main = "EF vs Age"
+)
+abline(lm(ejection_fraction ~ age, data = df), col = "red", lwd = 2)
+```
+
+## Step 2: Initial Model
+
+Research question: Which of the five selected predictors are significantly associated with `ejection_fraction`?
+
+Global hypotheses for the full model:
+
+-   `H0`: all five slope coefficients are 0.
+-   `HA`: at least one slope coefficient is not 0.
+
+### Full model
+
+```{r}
+summary(full_model)
+```
+
+### Coefficient table
+
+```{r}
+full_coef_table <- cbind(
+  round(coef(summary(full_model)), 4),
+  round(confint(full_model), 4)
+)
+print(full_coef_table)
+```
+
+## Step 3: Diagnostics
+
+The full model diagnostics are used to determine whether any remedy or simplification is needed.
+
+### Numerical diagnostics
+
+```{r}
+full_vif
+full_bp
+full_shapiro
+full_dw
+```
+
+### Influence diagnostics
+
+```{r}
+cat("Cook's distance rows above 4/n:\n")
+if (length(influential_rows) == 0) {
+  cat("None\n")
+} else {
+  print(influential_rows)
+}
+```
+
+### Diagnostic plots
+
+```{r}
+par(mfrow = c(2, 2))
+plot(full_model)
+```
+
+## Step 4: Decision and Final Model
+
+A minimal remedy is considered first by replacing raw `creatinine_phosphokinase` with `log_cpk`, since raw CPK is highly right-skewed. Then reduced nested models are compared to identify the most interpretable model without losing predictive quality.
+
+### Fit candidate models
+
+```{r}
+df$log_cpk <- log(df$creatinine_phosphokinase)
+
+log_cpk_model <- lm(
+  ejection_fraction ~ high_blood_pressure + serum_sodium +
+    serum_creatinine + log_cpk + age,
+  data = df
+)
+
+sodium_only_model <- lm(
+  ejection_fraction ~ serum_sodium,
+  data = df
+)
+
+drop_cpk_test <- anova(no_cpk_model, full_model)
+drop_hbp_creat_test <- anova(sodium_age_model, no_cpk_model)
+drop_age_test <- anova(sodium_only_model, sodium_age_model)
+```
+
+```{r}
+model_metrics <- data.frame(
+  Model = c(
+    "Full model (raw CPK)",
+    "Full model (log CPK)",
+    "Final: sodium only"
+  ),
+  Adjusted_R2 = c(
+    summary(full_model)$adj.r.squared,
+    summary(log_cpk_model)$adj.r.squared,
+    summary(sodium_only_model)$adj.r.squared
+  ),
+  AIC = c(
+    AIC(full_model),
+    AIC(log_cpk_model),
+    AIC(sodium_only_model)
+  ),
+  BIC = c(
+    BIC(full_model),
+    BIC(log_cpk_model),
+    BIC(sodium_only_model)
+  )
+)
+
+metric_cols <- c("Adjusted_R2", "AIC", "BIC")
+model_metrics[metric_cols] <- lapply(model_metrics[metric_cols], round, 4)
+model_metrics
+```
+
+### Nested model comparisons
+
+```{r}
+drop_cpk_test
+drop_hbp_creat_test
+drop_age_test
+```
+
+### Decision
+
+Use `serum_sodium` only as the final model.
+
+Reason:
+
+-   it is the only consistently significant predictor
+-   it has the smallest AIC and BIC among the candidate models
+-   it has the smallest 10-fold cross-validated RMSE
+-   it is the most interpretable final model
+
+### Final model summary
+
+```{r}
+summary(sodium_only_model)
+```
+
+### Final model coefficient table
+
+```{r}
+final_coef_table <- cbind(
+  round(coef(summary(sodium_only_model)), 4),
+  round(confint(sodium_only_model), 4)
+)
+print(final_coef_table)
+```
+
+## Step 5: Model Quality and Validation
+
+### 10-fold cross-validation
+
+```{r}
+set.seed(512)
+cv_folds <- createFolds(df$ejection_fraction, k = 10, returnTrain = TRUE)
+cv_control <- trainControl(method = "cv", number = 10, index = cv_folds)
+
+set.seed(512)
+cv_full <- train(
+  ejection_fraction ~ high_blood_pressure + serum_sodium +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df,
+  method = "lm",
+  metric = "RMSE",
+  trControl = cv_control
+)
+
+set.seed(512)
+cv_log_cpk <- train(
+  ejection_fraction ~ high_blood_pressure + serum_sodium +
+    serum_creatinine + log_cpk + age,
+  data = df,
+  method = "lm",
+  metric = "RMSE",
+  trControl = cv_control
+)
+
+set.seed(512)
+cv_sodium_only <- train(
+  ejection_fraction ~ serum_sodium,
+  data = df,
+  method = "lm",
+  metric = "RMSE",
+  trControl = cv_control
+)
+
+cv_results <- data.frame(
+  Model = c(
+    "Full model (raw CPK)",
+    "Full model (log CPK)",
+    "Final: sodium only"
+  ),
+  CV_RMSE = c(
+    cv_full$results$RMSE,
+    cv_log_cpk$results$RMSE,
+    cv_sodium_only$results$RMSE
+  ),
+  CV_RMSE_SD = c(
+    cv_full$results$RMSESD,
+    cv_log_cpk$results$RMSESD,
+    cv_sodium_only$results$RMSESD
+  )
+)
+
+cv_results[c("CV_RMSE", "CV_RMSE_SD")] <- lapply(
+  cv_results[c("CV_RMSE", "CV_RMSE_SD")],
+  round,
+  4
+)
+
+cv_results
+```
+
+### Validation takeaway
+
+The `serum_sodium`-only model has the best average 10-fold RMSE among the candidate models, so it is retained as the final model. Even so, the adjusted `R^2` values are small across all models, which means the dataset supports only weak prediction of `ejection_fraction` using these variables.
