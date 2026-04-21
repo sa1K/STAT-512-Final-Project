@@ -166,10 +166,14 @@ abline(lm(ejection_fraction ~ age, data = df), col = "red", lwd = 2)
 
 Research question: Which of the five selected predictors are significantly associated with `ejection_fraction`?
 
-Global hypotheses for the full model:
+In this step, each predictor is tested individually within the full multiple linear regression model while holding the other four predictors fixed.
 
--   `H0`: all five slope coefficients are 0.
--   `HA`: at least one slope coefficient is not 0.
+For each predictor, the individual hypothesis test is:
+
+-   `H0: beta_j = 0`
+-   `HA: beta_j != 0`
+
+where `beta_j` is the coefficient for that predictor in the full model.
 
 ### Full model
 
@@ -177,7 +181,49 @@ Global hypotheses for the full model:
 summary(full_model)
 ```
 
-### Coefficient table
+### Individual predictor tests
+
+For each predictor in the full model, test
+
+-   `H0: beta_j = 0`
+-   `HA: beta_j != 0`
+
+where `beta_j` is the slope for that predictor after adjusting for the other four predictors.
+
+```{r}
+individual_tests <- data.frame(
+  Predictor = c(
+    "high_blood_pressureYes",
+    "serum_sodium",
+    "serum_creatinine",
+    "creatinine_phosphokinase",
+    "age"
+  ),
+  Null_Hypothesis = c(
+    "beta_HBP = 0",
+    "beta_sodium = 0",
+    "beta_creatinine = 0",
+    "beta_CPK = 0",
+    "beta_age = 0"
+  ),
+  Alternative = c(
+    "beta_HBP != 0",
+    "beta_sodium != 0",
+    "beta_creatinine != 0",
+    "beta_CPK != 0",
+    "beta_age != 0"
+  ),
+  Estimate = round(coef(summary(full_model))[-1, "Estimate"], 4),
+  t_value = round(coef(summary(full_model))[-1, "t value"], 4),
+  p_value = round(coef(summary(full_model))[-1, "Pr(>|t|)"], 4),
+  Significant_0_05 = coef(summary(full_model))[-1, "Pr(>|t|)"] < 0.05,
+  row.names = NULL
+)
+
+individual_tests
+```
+
+### Coefficient output
 
 ```{r}
 full_coef_table <- cbind(
@@ -220,7 +266,7 @@ plot(full_model)
 
 ## Step 4: Decision and Final Model
 
-A minimal remedy is considered first by replacing raw `creatinine_phosphokinase` with `log_cpk`, since raw CPK is highly right-skewed. Then reduced nested models are compared to identify the most interpretable model without losing predictive quality.
+A minimal remedy is considered first by replacing raw `creatinine_phosphokinase` with `log_cpk`, since raw CPK is highly right-skewed. The final decision is then made by comparing the original full model, the log-transformed version, and a parsimonious sodium-only model.
 
 ### Fit candidate models
 
@@ -238,9 +284,7 @@ sodium_only_model <- lm(
   data = df
 )
 
-drop_cpk_test <- anova(no_cpk_model, full_model)
-drop_hbp_creat_test <- anova(sodium_age_model, no_cpk_model)
-drop_age_test <- anova(sodium_only_model, sodium_age_model)
+drop_to_sodium_test <- anova(sodium_only_model, full_model)
 ```
 
 ```{r}
@@ -272,12 +316,10 @@ model_metrics[metric_cols] <- lapply(model_metrics[metric_cols], round, 4)
 model_metrics
 ```
 
-### Nested model comparisons
+### Nested model comparison
 
 ```{r}
-drop_cpk_test
-drop_hbp_creat_test
-drop_age_test
+drop_to_sodium_test
 ```
 
 ### Decision
