@@ -1,0 +1,389 @@
+---
+title: "Ejection Fraction Multiple Linear Regression"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+date: "2026-04-21"
+---
+
+## Steps
+
+1.  Full Model
+2.  Assumptions and Diagnostics
+3.  Initial Model and Research Questions
+4.  Decision and Remedial Methods
+5.  Final Model and Research Questions
+
+## Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+options(scipen = 999)
+
+library(car)
+library(caret)
+library(lmtest)
+library(dplyr)
+library(MASS)
+
+data_path <- "heart_failure_clinical_records_dataset 2.csv"
+
+df <- read.csv(data_path)
+df$high_blood_pressure <- factor(
+  df$high_blood_pressure,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+```
+\newpage
+
+## Step 1: Fit the Full Model
+
+```{r}
+full_model <- lm(
+  ejection_fraction ~ high_blood_pressure * serum_sodium +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df
+)
+```
+\newpage
+
+## Step 2: Diagnostics
+
+```{r}
+# Tests below show strong signs of multicollinearity (VIFs over 1000 for
+# the two dummy variables associated with the blood pressure predictor), no
+# heteroscedasticity (BP test p-value > 0.05), no sign of autocorrelation (DW 
+# test p-value > 0.05), but another violation of assumptions is that of normal
+# residuals where the Shapiro-Wilk test has a p-value ~ 0 (< alpha = 0.05).
+
+vif(full_model)
+bptest(full_model)
+shapiro.test(residuals(full_model))
+dwtest(full_model)
+
+
+# Tests below focus on identifying outliers. This can be streamlined through
+# observing the outliers on the influence plot. It is worth noting that no
+# observation had a Cook's D over 0.5, and there are only X-outliers (no Y).
+
+lev_h <- hatvalues(full_model)
+t_stud <- rstudent(full_model)
+cookD <- cooks.distance(full_model)
+
+n <- nobs(full_model)
+p <- length(coef(full_model))
+n
+p
+lev_cut <- 2 * p / n
+lev_cut_3 <- 3 * p / n
+qt(1 - 0.05 / (2 * nrow(df)), df = nrow(df) - p - 1)
+outliers_q3 <- data.frame(
+  obs_index = 1:n,
+  leverage_h = lev_h,
+  stud_del_resid = t_stud,
+  cooks_D = cookD
+) |>
+  mutate(
+    flag_leverage_gt_3p_over_n = leverage_h > lev_cut_3,
+    flag_cookD_gt_0p5 = cooks_D > 0.5,
+    flag_abs_t_gt_5percentB = abs(stud_del_resid) > 
+      qt(1 - 0.05 / (2 * nrow(df)), df = nrow(df) - p - 1)
+  ) |>
+  filter(
+    flag_leverage_gt_3p_over_n |
+    flag_cookD_gt_0p5 |
+    flag_abs_t_gt_5percentB
+  )
+
+outliers_q3
+
+plot(
+  lev_h, t_stud,
+  xlab = "Leverage (hii)",
+  ylab = "Studentized Deleted Residuals (ti)",
+  main = "Influence Plot",
+  pch = 19
+)
+
+abline(h = 2, lty = 2)
+abline(h = -2, lty = 2)
+abline(h = qt(1 - 0.05 / (2 * nrow(df)), df = nrow(df) - p - 1), lty = 3)
+abline(h = -qt(1 - 0.05 / (2 * nrow(df)), df = nrow(df) - p - 1), lty = 3)
+
+abline(v = lev_cut, lty = 2, col = "blue")
+abline(v = lev_cut_3, lty = 3, col = "red")
+
+text(lev_h, t_stud, labels = 1:n, pos = 4, cex = 0.7)
+
+png("avplots_all.png", width = 2400, height = 1800, res = 220)
+par(mfrow = c(3, 3))
+avPlots(full_model, id = FALSE)
+dev.off()
+```
+\newpage
+
+## Step 3: Initial Model and Research Question Answers
+
+### Research question 1:
+Does serum sodium contribute significantly to explaining ejection fraction
+holding all other predictors constant?
+
+### Research question 2:
+Does serum sodium affect ejection rate differently in people with high blood
+pressure compared to those with low blood pressure?
+
+### Research question 3:
+Does creatinine phosphokinase  contribute significantly to explaining ejection 
+fraction holding all other predictors constant?
+
+### Research question 4:
+Does age contribute significantly to explaining ejection fraction holding all 
+other predictors constant?
+
+### Research question 5:
+Does serum creatinine contribute significantly to explaining ejection fraction
+holding all other predictors constant?
+
+
+```{r}
+# Full Model
+summary(full_model)
+
+# Research Question 1:
+reduced_model1 <- lm(
+  ejection_fraction ~ high_blood_pressure + serum_creatinine +
+    creatinine_phosphokinase + age,
+  data = df
+)
+
+full_model1 <- lm(
+  ejection_fraction ~ high_blood_pressure + serum_sodium +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df
+)
+
+anova(reduced_model1, full_model1)
+
+# Research Question 2:
+reduced_model2 <- lm(
+  ejection_fraction ~ high_blood_pressure + serum_sodium +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df
+)
+
+full_model2 <- lm(
+  ejection_fraction ~ high_blood_pressure * serum_sodium +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df
+)
+
+anova(reduced_model2, full_model2)
+
+# Research Question 3:
+reduced_model3 <- lm(
+  ejection_fraction ~ high_blood_pressure * serum_sodium +
+    serum_creatinine + age,
+  data = df
+)
+
+full_model3 <- lm(
+  ejection_fraction ~ high_blood_pressure * serum_sodium +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df
+)
+
+anova(reduced_model3, full_model3)
+
+# Research Question 4:
+reduced_model4 <- lm(
+  ejection_fraction ~ high_blood_pressure * serum_sodium +
+    serum_creatinine + creatinine_phosphokinase,
+  data = df
+)
+
+full_model4 <- lm(
+  ejection_fraction ~ high_blood_pressure * serum_sodium +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df
+)
+
+anova(reduced_model4, full_model4)
+
+# Research Question 5:
+reduced_model5 <- lm(
+  ejection_fraction ~ high_blood_pressure * serum_sodium + 
+    creatinine_phosphokinase + age,
+  data = df
+)
+
+full_model5 <- lm(
+  ejection_fraction ~ high_blood_pressure * serum_sodium +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df
+)
+
+anova(reduced_model5, full_model5)
+```
+\newpage
+
+## Step 4: Remedial Methods and Decision
+
+The main takeaway at this point is that only two predictors are significant 
+in the model and the normality assumption is not met. To address that, a 
+boxcox transformation is needed before variable reduction is addressed.
+
+```{r}
+# Apply Box-cox (Topic 8R)
+dat <- as.data.frame(df)
+fit_raw <- lm(ejection_fraction ~ high_blood_pressure * serum_sodium +
+                serum_creatinine + creatinine_phosphokinase + age, data = dat)
+bc <- boxcox(fit_raw, lambda = seq(-1.5, 1.5, by = 0.05), plotit=TRUE)
+lambda <- bc$x[which.max(bc$y)]
+lambda
+
+# Fit log-transformed response
+fit_log <- lm(log(ejection_fraction) ~ high_blood_pressure * serum_sodium +
+                serum_creatinine + creatinine_phosphokinase + age, data = dat)
+summary(fit_log)   # slope on log-scale; RSE and R^2 on log-scale
+
+# Groupwise variance check
+dat$log_ejection_fraction <- log(dat$ejection_fraction)
+g_bc <- cut(fitted(fit_log), breaks = quantile(fitted(fit_log), probs = seq(0, 1, by = 0.25)),
+            include.lowest = TRUE)
+tapply(dat$log_ejection_fraction, g_bc, sd)
+
+# Formal tests on transformed model
+bptest(fit_log)
+shapiro.test(residuals(fit_log))
+
+# Diagnostics on transformed scale
+plot(fitted(fit_log), resid(fit_log),
+     xlab = "Fitted (log Y)", ylab = "Residuals (log Y)",
+     main = "Residuals vs Fitted (log)")
+abline(h = 0, lty = 2)
+
+qqnorm(resid(fit_log), main = "Normal Q-Q (log residuals)")
+qqline(resid(fit_log), lty = 2)
+```
+
+After confirming that boxcox made significant improvement via RSE reduction
+and improved normality diagnostics, variable reduction can be considered.
+This is done through evaluating several criteria and cross-validation:
+
+```{r}
+# Criteria Evaluation and Cross-Validation (Topic 19)
+
+# Criteria Evaluation
+y <- log(dat[["ejection_fraction"]])
+dat$hbp_sodium <- with(dat, as.numeric(high_blood_pressure == "Yes") * serum_sodium)
+
+fit_lm <- function(y, X) {
+  df <- data.frame(y = y, X)
+  lm(y ~ ., data = df)
+}
+
+press_stat <- function(model) {
+  h <- hatvalues(model)
+  e <- resid(model)
+  sum((e/(1 - h))^2)
+}
+
+# Full model (for Cp baseline)
+preds <- c("high_blood_pressure", "serum_sodium", "hbp_sodium",
+           "serum_creatinine", "creatinine_phosphokinase", "age")
+X_full <- dat[, preds, drop = FALSE]
+m_full <- fit_lm(y, X_full)
+SSE_full <- sum(resid(m_full)^2)
+MSE_full <- SSE_full / df.residual(m_full)
+n <- length(y)
+
+# Enumerate all non-empty subsets and compute metrics
+subsets <- unlist(lapply(1:length(preds), function(k) {
+  combn(preds, k, simplify = FALSE)
+}), recursive = FALSE)
+
+results <- lapply(subsets, function(S) {
+  Xs <- dat[, S, drop = FALSE]
+  m <- fit_lm(y, Xs)
+  SSE <- sum(resid(m)^2)
+  p <- length(coef(m))      # includes intercept
+  list(
+    subset = paste(S, collapse = ", "),
+    k_pred = length(S),     # number of predictors
+    p_params = p,           # parameters incl. intercept
+    R2 = summary(m)$r.squared,
+    AdjR2 = summary(m)$adj.r.squared,
+    Cp = SSE/MSE_full - (n - 2*p),
+    AIC = AIC(m),
+    BIC = BIC(m),
+    PRESS = press_stat(m),
+    SSE = SSE
+  )
+})
+
+results_df <- do.call(rbind, lapply(results, as.data.frame))
+results_df <- results_df[order(results_df$k_pred, results_df$AIC), ]
+
+# Save results
+write.csv(results_df, "ejection_fraction_model_selection_results.csv", row.names = FALSE)
+
+# ---- Best subsets by criterion ----
+best_R2    <- results_df[which.max(results_df$R2), ]
+best_AdjR2 <- results_df[which.max(results_df$AdjR2), ]
+gap_Cp     <- abs(results_df$Cp - results_df$p_params)
+best_Cp    <- results_df[which.min(gap_Cp), ]
+best_AIC   <- results_df[which.min(results_df$AIC), ]
+best_BIC   <- results_df[which.min(results_df$BIC), ]
+best_PRESS <- results_df[which.min(results_df$PRESS), ]
+
+sink("ejection_fraction_best_by_criterion.txt")
+cat("Response column: ejection_fraction\n")
+cat("Predictors considered:", paste(preds, collapse=", "), "\n\n")
+cat("Best subsets by criterion:\n")
+print(list(
+  R2 = list(k = best_R2$k_pred, subset = best_R2$subset),
+  AdjR2 = list(k = best_AdjR2$k_pred, subset = best_AdjR2$subset),
+  Cp = list(k = best_Cp$k_pred, subset = best_Cp$subset),
+  AIC = list(k = best_AIC$k_pred, subset = best_AIC$subset),
+  BIC = list(k = best_BIC$k_pred, subset = best_BIC$subset),
+  PRESS = list(k = best_PRESS$k_pred, subset = best_PRESS$subset)
+))
+sink()
+
+# Cross-Validation with 10-fold CV
+set.seed(512)
+ctrl <- trainControl(method = "cv", number = 10)
+
+# Candidate models according to criteria:
+m1 <- log(ejection_fraction) ~ serum_sodium
+m4 <- log(ejection_fraction) ~ high_blood_pressure * serum_sodium + age
+m6 <- log(ejection_fraction) ~ high_blood_pressure * serum_sodium +
+  serum_creatinine + creatinine_phosphokinase + age
+
+heart_failure <- read.csv("heart_failure_clinical_records_dataset 2.csv", stringsAsFactors = FALSE)
+
+# 10-fold CV for OLS (method='lm')
+fit1 <- train(m1, data = heart_failure, method = "lm", trControl = ctrl)
+fit4 <- train(m4, data = heart_failure, method = "lm", trControl = ctrl)
+fit6 <- train(m6, data = heart_failure, method = "lm", trControl = ctrl)
+
+# RMSE Comparison
+cat(sprintf("M1 RMSE: %.3f\n", fit1$results$RMSE[1]))
+cat(sprintf("M4 RMSE: %.3f\n", fit4$results$RMSE[1]))
+cat(sprintf("M6 RMSE: %.3f\n", fit6$results$RMSE[1]))
+```
+\newpage
+
+## Step 5: Fit the Final Model and Revisit Research Questions
+
+The three candidate models have identical performances (identical RMSE), so
+for parsimony and interpretability, the final model is:
+log(ejection_fraction) ~ serum_sodium
+
+```{r}
+summary(lm(log(ejection_fraction) ~ serum_sodium, data = heart_failure))
+```
+
+The fact that the final model only includes serum_sodium confirms the results of
+all previous research questions as no other predictor was found to be significant
