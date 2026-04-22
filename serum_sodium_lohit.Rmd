@@ -1,0 +1,242 @@
+---
+title: "Serum Sodium and Ejection Fraction"
+author: "Lohit Jagarlamudi"
+output: html_document
+date: "2026-04-21"
+---
+
+## Research Question
+
+Is serum sodium significantly associated with ejection fraction after controlling for high blood pressure, serum creatinine, creatinine phosphokinase, and age?
+
+$H_0: \beta_{sodium} = 0$ vs $H_a: \beta_{sodium} \neq 0$
+
+## Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+options(scipen = 999)
+library(car)
+library(lmtest)
+library(caret)
+
+df <- read.csv("heart_failure_clinical_records_dataset 2.csv")
+df$high_blood_pressure <- factor(df$high_blood_pressure, levels = c(0, 1), labels = c("No", "Yes"))
+```
+
+## Assumption Screening
+
+```{r}
+full_model <- lm(
+  ejection_fraction ~ serum_sodium + high_blood_pressure +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df
+)
+
+n <- nrow(df)
+p <- length(coef(full_model))
+```
+
+Quick look at the relationship before running tests:
+
+```{r}
+plot(
+  df$serum_sodium, df$ejection_fraction,
+  pch = 19, col = "gray40",
+  xlab = "Serum Sodium", ylab = "Ejection Fraction",
+  main = "EF vs Serum Sodium"
+)
+abline(lm(ejection_fraction ~ serum_sodium, data = df), col = "red", lwd = 2)
+```
+
+There's a positive trend but a lot of scatter around the line, which is worth keeping in mind.
+
+**Independence:** Each row is a separate patient so independence is reasonable by design.
+
+```{r}
+dwtest(full_model)
+```
+
+Durbin-Watson p-value is well above 0.05, no evidence of autocorrelation.
+
+**Multicollinearity:**
+
+```{r}
+round(vif(full_model), 3)
+```
+
+All VIFs are close to 1 and well below 5, so multicollinearity is not a concern.
+
+**Constant variance:**
+
+```{r}
+bptest(full_model)
+```
+
+Breusch-Pagan p-value is not significant, so constant variance looks fine.
+
+**Normality:**
+
+```{r}
+shapiro.test(residuals(full_model))
+```
+
+Shapiro-Wilk is significant here, which means the normality assumption is violated. This is worth flagging but not surprising given the discrete-looking distribution of ejection fraction values in the data.
+
+**Unusual observations:**
+
+```{r}
+full_std_resid <- rstandard(full_model)
+full_hat <- hatvalues(full_model)
+full_cooks <- cooks.distance(full_model)
+
+outlier_rows <- as.integer(which(abs(full_std_resid) > 3))
+high_leverage_rows <- as.integer(which(full_hat > (2 * p / n)))
+influential_rows <- as.integer(which(full_cooks > (4 / n)))
+
+cat("Outliers (|std resid| > 3):\n")
+if (length(outlier_rows) == 0) cat("None\n") else print(outlier_rows)
+
+cat(sprintf("\nHigh leverage (h_i > %.4f):\n", 2 * p / n))
+if (length(high_leverage_rows) == 0) cat("None\n") else print(high_leverage_rows)
+
+cat("\nInfluential (Cook's D > 4/n):\n")
+if (length(influential_rows) == 0) cat("None\n") else print(influential_rows)
+```
+
+Row 65 is flagged as a significant outlier because its standardized residual is greater than 3. We also found several high-leverage points, with Row 218 being the most extreme. While several points are ‘influential’ (Cook’s D > 4/n), none are above the critical threshold of 1. This means that while some patients have unusual bloodwork, like Row 218’s extremely high CPK value, no single observation is unfairly distorting our model’s coefficients.
+
+## Initial Model
+
+```{r}
+summary(full_model)
+```
+
+```{r}
+full_coef_table <- cbind(
+  round(coef(summary(full_model)), 4),
+  round(confint(full_model), 4)
+)
+print(full_coef_table)
+```
+
+Serum sodium has a significant t-test p-value ($p = 0.00185$). For every 1 mEq/L increase in sodium, ejection fraction goes up by about 0.49 units holding the other predictors fixed.
+
+### Interaction: serum sodium x high blood pressure
+
+HBP affects how the body handles fluid and sodium balance, so the association between serum sodium and EF might differ between the two groups. Testing this:
+
+$H_0: \beta_{sodium \times HBP} = 0$ vs $H_a: \beta_{sodium \times HBP} \neq 0$
+
+```{r}
+interaction_model <- lm(
+  ejection_fraction ~ serum_sodium * high_blood_pressure +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df
+)
+
+summary(interaction_model)
+
+glt_interaction <- anova(full_model, interaction_model)
+print(glt_interaction)
+```
+The interaction isn't significant ($p = 0.0759$), so the association between sodium and ejection fraction doesn't really change based on blood pressure status. Since it’s above the 0.05 threshold, we’re dropping it to keep the final model simple and follow the “minimal remedy” rule.
+
+## Diagnostics
+
+```{r}
+par(mfrow = c(2, 2))
+plot(full_model)
+par(mfrow = c(1, 1))
+```
+
+The residuals vs fitted plot shows the red line is roughly flat with no clear curvature, so linearity looks reasonable. The spread of residuals is fairly consistent across fitted values. The QQ plot has some deviation at the tails but the middle follows the diagonal line reasonably well. We can say normality is approximate.
+
+```{r}
+plot(full_cooks, type = "h",
+     main = "Cook's Distance", ylab = "Cook's D", xlab = "Index",
+     col = "gray40")
+abline(h = 4 / n, col = "red", lty = 2, lwd = 2)
+```
+
+As noted in the screening phase, multicollinearity and constant variance are satisfied, while normality is slightly violated but acceptable for a dataset of this size ($n = 299$).
+
+## Model Selection
+
+CPK is pretty right-skewed so tried a log transform to see if it helps. Also comparing against a sodium-only model since that was the only significant predictor.
+
+```{r}
+df$log_cpk <- log(df$creatinine_phosphokinase)
+
+log_cpk_model <- lm(
+  ejection_fraction ~ serum_sodium + high_blood_pressure +
+    serum_creatinine + log_cpk + age,
+  data = df
+)
+
+sodium_only_model <- lm(ejection_fraction ~ serum_sodium, data = df)
+
+glt_drop <- anova(sodium_only_model, full_model)
+print(glt_drop)
+```
+
+```{r}
+model_metrics <- data.frame(
+  Model = c("Full (raw CPK)", "Full (log CPK)", "Sodium only"),
+  Adj_R2 = round(c(
+    summary(full_model)$adj.r.squared,
+    summary(log_cpk_model)$adj.r.squared,
+    summary(sodium_only_model)$adj.r.squared
+  ), 4),
+  AIC = round(c(AIC(full_model), AIC(log_cpk_model), AIC(sodium_only_model)), 4),
+  BIC = round(c(BIC(full_model), BIC(log_cpk_model), BIC(sodium_only_model)), 4)
+)
+model_metrics
+```
+
+```{r}
+summary(sodium_only_model)
+
+final_coef_table <- cbind(
+  round(coef(summary(sodium_only_model)), 4),
+  round(confint(sodium_only_model), 4)
+)
+print(final_coef_table)
+```
+
+Sodium only has the lowest AIC and BIC and the log CPK transform didn't really change much, so going with sodium only as the final model. The interaction between serum sodium and high blood pressure was tested but the GLT showed it didn't significantly improve the model ($p > 0.05$), so it was dropped.
+
+## Validation
+
+```{r}
+set.seed(512)
+cv_folds <- createFolds(df$ejection_fraction, k = 10, returnTrain = TRUE)
+cv_control <- trainControl(method = "cv", number = 10, index = cv_folds)
+
+set.seed(512)
+cv_full <- train(
+  ejection_fraction ~ serum_sodium + high_blood_pressure +
+    serum_creatinine + creatinine_phosphokinase + age,
+  data = df, method = "lm", metric = "RMSE", trControl = cv_control
+)
+
+set.seed(512)
+cv_sodium <- train(
+  ejection_fraction ~ serum_sodium,
+  data = df, method = "lm", metric = "RMSE", trControl = cv_control
+)
+
+cv_results <- data.frame(
+  Model = c("Full model", "Sodium only"),
+  CV_RMSE = round(c(cv_full$results$RMSE, cv_sodium$results$RMSE), 4),
+  CV_RMSE_SD = round(c(cv_full$results$RMSESD, cv_sodium$results$RMSESD), 4)
+)
+cv_results
+```
+
+The 10-fold cross-validation shows the Sodium only model is the better choice. Its RMSE (11.63) is lower than the full model’s (11.85), meaning it’s more accurate for predicting new data. The lower SD (1.26 vs 1.31) also shows it is more stable and generalizes better once we cut out the non-significant noise from the other variables.
+
+## Conclusion
+
+Holding age, high blood pressure, CPK, and creatinine constant, there is a significant association between serum sodium and ejection fraction ($p < 0.05$). The sodium-only model had the best AIC, BIC, and 10-fold CV RMSE so it was selected as the final model.
+
+That said, adjusted R-squared is pretty low across all models, meaning serum sodium alone doesn't predict individual EF values well. The results are also specific to this dataset — heart failure patients from one clinical cohort — so they may not generalize to other populations. Future work could look at additional predictors or non-linear relationships to better explain the variation in EF.
