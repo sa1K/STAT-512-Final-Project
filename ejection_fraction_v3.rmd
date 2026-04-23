@@ -67,6 +67,15 @@ bptest(full_model)
 shapiro.test(residuals(full_model))
 dwtest(full_model)
 
+# Visual diagnostics of residuals
+plot(fitted(full_model), resid(full_model),
+     xlab = "Fitted", ylab = "Residuals",
+     main = "Residuals vs Fitted")
+abline(h = 0, lty = 2)
+
+qqnorm(resid(full_model), main = "Normal Q-Q")
+qqline(resid(full_model), lty = 2)
+
 
 # Tests below focus on identifying outliers. This can be streamlined through
 # observing the outliers on the influence plot. It is worth noting that no
@@ -149,7 +158,6 @@ lambda
 # Fit log-transformed response
 fit_log <- lm(log(ejection_fraction) ~ high_blood_pressure * serum_sodium +
                 serum_creatinine + creatinine_phosphokinase + age, data = dat)
-summary(fit_log)   # slope on log-scale; RSE and R^2 on log-scale
 
 # Groupwise variance check
 dat$log_ejection_fraction <- log(dat$ejection_fraction)
@@ -157,9 +165,6 @@ g_bc <- cut(fitted(fit_log), breaks = quantile(fitted(fit_log), probs = seq(0, 1
             include.lowest = TRUE)
 tapply(dat$log_ejection_fraction, g_bc, sd)
 
-# Formal tests on transformed model
-bptest(fit_log)
-shapiro.test(residuals(fit_log))
 
 # Diagnostics on transformed scale
 plot(fitted(fit_log), resid(fit_log),
