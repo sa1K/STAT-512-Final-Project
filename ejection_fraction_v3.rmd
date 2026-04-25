@@ -208,28 +208,30 @@ scale.
 
 ### Research question 1:
 
-Does serum sodium contribute significantly to explaining ejection
-fraction holding all other predictors constant?
+Is serum sodium significantly associated with ejection fraction in
+patients, and if so, what is the magnitude and direction of this
+association?
 
 ### Research question 2:
 
-Does serum sodium affect ejection rate differently in people with high
-blood pressure compared to those with low blood pressure?
+Does the association between serum sodium and ejection fraction differ
+between patients with and without high blood pressure?
 
 ### Research question 3:
 
-Does creatinine phosphokinase contribute significantly to explaining
-ejection fraction holding all other predictors constant?
+Is creatinine phosphokinase significantly associated with ejection
+fraction and if so, what is the magnitude and direction of this
+association?
 
 ### Research question 4:
 
-Does age contribute significantly to explaining ejection fraction
-holding all other predictors constant?
+Is age significantly associated with ejection fraction, and if so, what
+is the magnitude and direction of this association?
 
 ### Research question 5:
 
-Does serum creatinine contribute significantly to explaining ejection
-fraction holding all other predictors constant?
+Is serum creatinine significantly associated with ejection fraction, and
+if so, what is the magnitude and direction of this association?
 
 ```{r}
 # Full Model (log-transformed)
