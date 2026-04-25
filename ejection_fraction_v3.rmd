@@ -62,6 +62,7 @@ colSums(is.na(df))
 \newpage
 
 ## Step 2: Fit the Full Model
+# Includes all candidate predictors and interaction term.
 
 ```{r}
 full_model <- lm(
@@ -82,9 +83,13 @@ full_model <- lm(
 # test p-value > 0.05), but another violation of assumptions is that of normal
 # residuals where the Shapiro-Wilk test has a p-value ~ 0 (< alpha = 0.05).
 
+# This checks multicollinearity among predictors.
 vif(full_model)
+# This checks constant error variance.
 bptest(full_model)
+# This checks residual normality.
 shapiro.test(residuals(full_model))
+# This checks residual independence.
 dwtest(full_model)
 
 # Visual diagnostics of residuals
@@ -428,10 +433,12 @@ The three candidate models have identical performances (identical RMSE),
 so for parsimony and interpretability, the final model is:
 log(ejection_fraction) \~ serum_sodium
 
+# When the predictive performances are similar, simpler models are preferred.
+
 ```{r}
 summary(lm(log(ejection_fraction) ~ serum_sodium, data = heart_failure))
 ```
 
 The fact that the final model only includes serum_sodium confirms the
 results of all previous research questions as no other predictor was
-found to be significant
+found to be significant.
